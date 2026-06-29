@@ -1,0 +1,18 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# data: SQLite db + encrypted blobs (never commit)
+/data/
+
+# misc
+*.tsbuildinfo
+.DS_Store
+
+# env
+.env
+.env.local
