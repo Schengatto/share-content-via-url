@@ -11,6 +11,7 @@ function memBlobs(): BlobStore & { map: Map<string, Buffer> } {
     put: (id, d) => void map.set(id, d),
     get: (id) => map.get(id)!,
     delete: (id) => void map.delete(id),
+    list: () => [...map.keys()],
   };
 }
 
@@ -52,5 +53,13 @@ describe("cleanup.purgeExpired", () => {
   it("returns 0 when nothing is expired", async () => {
     await createShare(db, blobs, { ...base, expiresAt: Date.now() + 60_000 });
     expect(purgeExpired(db, blobs)).toBe(0);
+  });
+
+  it("removes blobs that no share references and keeps referenced ones", async () => {
+    const { id } = await createShare(db, blobs, { ...base, expiresAt: Date.now() + 60_000 });
+    blobs.put("orphan-blob", Buffer.from("leftover ciphertext"));
+
+    expect(purgeExpired(db, blobs)).toBe(0);
+    expect([...blobs.map.keys()]).toEqual([id]);
   });
 });

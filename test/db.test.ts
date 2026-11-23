@@ -1,29 +1,48 @@
-import { describe, it, expect } from "vitest";
-import { openDb } from "../lib/db";
+import { describe, it, expect, afterEach } from "vitest";
+import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LEGACY_PAYLOAD_FORMAT, openDb } from "../lib/db";
+
+const LEGACY_SCHEMA = `
+CREATE TABLE shares (
+  id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, kind TEXT NOT NULL, filename TEXT,
+  mime TEXT NOT NULL, blob_path TEXT NOT NULL, iv BLOB NOT NULL, auth_tag BLOB NOT NULL,
+  size INTEGER NOT NULL, expires_at INTEGER, max_accesses INTEGER,
+  access_count INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX idx_shares_token_hash ON shares (token_hash);
+`;
+
+let tempDir: string | null = null;
+
+afterEach(() => {
+  if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+  tempDir = null;
+});
 
 describe("db", () => {
-  it("creates the shares table with all expected columns", () => {
+  it("creates the shares table without plaintext size and with the payload format", () => {
     const db = openDb(":memory:");
     const cols = (
       db.prepare("PRAGMA table_info(shares)").all() as { name: string }[]
     ).map((c) => c.name);
-    expect(cols).toEqual(
-      expect.arrayContaining([
-        "id",
-        "token_hash",
-        "kind",
-        "filename",
-        "mime",
-        "blob_path",
-        "iv",
-        "auth_tag",
-        "size",
-        "expires_at",
-        "max_accesses",
-        "access_count",
-        "created_at",
-      ]),
-    );
+    expect(cols).toEqual([
+      "id",
+      "token_hash",
+      "kind",
+      "payload_format",
+      "filename",
+      "mime",
+      "blob_path",
+      "iv",
+      "auth_tag",
+      "expires_at",
+      "max_accesses",
+      "access_count",
+      "created_at",
+    ]);
   });
 
   it("indexes token_hash for lookup", () => {
@@ -38,5 +57,36 @@ describe("db", () => {
     const db = openDb(":memory:");
     expect(() => openDb(":memory:")).not.toThrow();
     expect(db.prepare("SELECT COUNT(*) c FROM shares").get()).toEqual({ c: 0 });
+  });
+
+  it("zeroes deleted content", () => {
+    const db = openDb(":memory:");
+    expect(db.pragma("secure_delete", { simple: true })).toBe(1);
+  });
+
+  it("migrates a legacy database keeping its shares readable as the legacy payload format", () => {
+    tempDir = mkdtempSync(join(tmpdir(), "share-db-"));
+    const path = join(tempDir, "share.db");
+    const legacy = new Database(path);
+    legacy.exec(LEGACY_SCHEMA);
+    legacy
+      .prepare(
+        `INSERT INTO shares (id, token_hash, kind, filename, mime, blob_path, iv, auth_tag, size,
+           expires_at, max_accesses, access_count, created_at)
+         VALUES ('share-1', 'hash-1', 'file', 'a.pdf', 'application/pdf', 'share-1', x'00', x'00', 3,
+           NULL, 1, 0, 1)`,
+      )
+      .run();
+    legacy.close();
+
+    const db = openDb(path);
+    expect(db.pragma("user_version", { simple: true })).toBe(1);
+    expect(
+      db.prepare("SELECT payload_format, filename, mime, access_count FROM shares WHERE id = 'share-1'").get(),
+    ).toEqual({ payload_format: LEGACY_PAYLOAD_FORMAT, filename: "a.pdf", mime: "application/pdf", access_count: 0 });
+    db.close();
+    const reopened = openDb(path);
+    expect(reopened.pragma("user_version", { simple: true })).toBe(1);
+    reopened.close();
   });
 });

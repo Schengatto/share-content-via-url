@@ -25,11 +25,11 @@ export function FileDropzone({
   function accept(candidate: File | undefined) {
     if (!candidate) return;
     if (!isSupportedFile(candidate)) {
-      setError("Tipo di file non supportato.");
+      setError("Unsupported file type.");
       return;
     }
     if (candidate.size > MAX_SIZE) {
-      setError(`File troppo grande (max ${formatBytes(MAX_SIZE)}).`);
+      setError(`File too large (max ${formatBytes(MAX_SIZE)}).`);
       return;
     }
     setError(null);
@@ -43,7 +43,7 @@ export function FileDropzone({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3 p-[18px]">
       <input
         ref={inputRef}
         id={inputId}
@@ -54,21 +54,21 @@ export function FileDropzone({
       />
 
       {file ? (
-        <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zinc-900 text-white">
+        <div className="flex items-center gap-3 rounded-[10px] border border-edge bg-raise p-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber text-amber-ink">
             <FileIcon />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-zinc-900">
+            <p className="truncate text-sm font-medium text-ink">
               {file.name}
             </p>
-            <p className="text-xs text-zinc-500">{formatBytes(file.size)}</p>
+            <p className="font-mono text-xs text-dim">{formatBytes(file.size)}</p>
           </div>
           <button
             type="button"
             onClick={clear}
-            aria-label="Rimuovi file"
-            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+            aria-label="Remove file"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-dim hover:bg-edge hover:text-ink"
           >
             <XIcon />
           </button>
@@ -86,33 +86,33 @@ export function FileDropzone({
             setDragOver(false);
             accept(e.dataTransfer.files?.[0]);
           }}
-          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-6 py-8 text-center transition-colors ${
+          className={`flex cursor-pointer items-center justify-center gap-3 rounded-[10px] border-[1.5px] border-dashed px-5 py-6 text-left transition-colors ${
             dragOver
-              ? "border-zinc-900 bg-zinc-50"
-              : "border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50"
+              ? "border-amber bg-amber/5"
+              : "border-edge-strong hover:border-dim"
           }`}
         >
-          <span className="text-zinc-400">
+          <span className="text-dim">
             <UploadIcon />
           </span>
-          <span className="text-sm text-zinc-700">
-            <span className="font-medium text-zinc-900">Trascina un file</span>{" "}
-            qui, oppure <span className="underline">sfoglia</span>
-          </span>
-          <span className="text-xs text-zinc-500">
-            max {formatBytes(MAX_SIZE)}
+          <span className="flex flex-col text-sm text-dim">
+            <span>
+              <span className="font-medium text-ink">Drop a file</span> or{" "}
+              <span className="underline underline-offset-4">browse</span>
+            </span>
+            <span className="font-mono text-xs">max {formatBytes(MAX_SIZE)}</span>
           </span>
         </label>
       )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-ember">{error}</p>}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-0.5">
-        <span className="text-xs font-medium text-zinc-500">Supportati:</span>
+        <span className="font-mono text-[11px] uppercase tracking-wider text-dim">Supported</span>
         {SUPPORTED_FILE_GROUPS.flatMap((group) => group.items).map((type) => (
           <span
             key={type.mime}
-            className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] font-medium text-zinc-600"
+            className="rounded bg-raise px-1.5 py-0.5 font-mono text-[11px] text-dim"
           >
             {type.label}
           </span>

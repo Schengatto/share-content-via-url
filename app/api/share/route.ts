@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appDb, appBlobs, ensureStarted } from "@/lib/app";
+import { appDb, appBlobs, ensureStarted, shareUrl } from "@/lib/app";
 import { createShare } from "@/lib/store";
 import { validateContent, MAX_SIZE } from "@/lib/content-safety";
 import { shareCreationLimiter } from "@/lib/rate-limit";
@@ -91,8 +91,7 @@ export async function POST(req: NextRequest) {
       expiresAt,
       maxAccesses,
     });
-    const url = `${req.nextUrl.origin}/s/${token}`;
-    return NextResponse.json({ url });
+    return NextResponse.json({ url: shareUrl(req.nextUrl.origin, token) });
   } catch (e) {
     const err = e as { status?: number; message?: string };
     if (typeof err.status === "number") {

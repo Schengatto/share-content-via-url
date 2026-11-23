@@ -9,6 +9,7 @@ vi.mock("../lib/blob-store", () => ({ fsBlobStore }));
 vi.mock("../lib/cleanup", () => ({ purgeExpired }));
 
 const origDataDir = process.env.DATA_DIR;
+const origPublicOrigin = process.env.PUBLIC_ORIGIN;
 
 beforeEach(() => {
   vi.resetModules();
@@ -16,11 +17,29 @@ beforeEach(() => {
   fsBlobStore.mockClear();
   purgeExpired.mockClear();
   delete process.env.DATA_DIR;
+  delete process.env.PUBLIC_ORIGIN;
 });
 
 afterEach(() => {
   if (origDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = origDataDir;
+  if (origPublicOrigin === undefined) delete process.env.PUBLIC_ORIGIN;
+  else process.env.PUBLIC_ORIGIN = origPublicOrigin;
+});
+
+describe("shareUrl", () => {
+  it("uses the request origin when PUBLIC_ORIGIN is unset", async () => {
+    const app = await import("../lib/app");
+    expect(app.shareUrl("http://localhost:3000", "abc")).toBe("http://localhost:3000/s/abc");
+  });
+
+  it("prefers PUBLIC_ORIGIN over the request origin, without trailing slashes", async () => {
+    process.env.PUBLIC_ORIGIN = "https://share-secret.schengatto.com/";
+    const app = await import("../lib/app");
+    expect(app.shareUrl("https://0.0.0.0:3000", "abc")).toBe(
+      "https://share-secret.schengatto.com/s/abc",
+    );
+  });
 });
 
 describe("app wiring", () => {

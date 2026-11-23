@@ -1,1 +1,40 @@
 @import "tailwindcss";
+
+@theme {
+  --color-night: #0e0f0d;
+  --color-panel: #161814;
+  --color-raise: #1d201b;
+  --color-ink: #ecebe4;
+  --color-dim: #8d8f86;
+  --color-faint: #5d6058;
+  --color-edge: #2a2d27;
+  --color-edge-strong: #3a3e36;
+  --color-amber: #e8b44a;
+  --color-amber-ink: #1a1404;
+  --color-ember: #e0715c;
+  --color-live: #7fc48a;
+  --font-sans: var(--font-instrument-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+body {
+  background-color: var(--color-night);
+  background-image: radial-gradient(1200px 500px at 50% -200px, #e8b44a14, transparent 70%);
+  background-attachment: fixed;
+}
+
+.wax-seal {
+  background: radial-gradient(circle at 35% 30%, #f3c869, #b98419);
+  box-shadow: 0 6px 24px #e8b44a33;
+}
+
+.envelope-flap::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 120px;
+  background:
+    linear-gradient(160deg, transparent 49.5%, var(--color-edge) 50%, transparent 50.5%),
+    linear-gradient(200deg, transparent 49.5%, var(--color-edge) 50%, transparent 50.5%);
+  pointer-events: none;
+}

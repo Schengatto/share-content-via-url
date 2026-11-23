@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { GHOST_BUTTON } from "../../buttons";
 
 /** Reconstructs the decrypted file from base64 and triggers a download. */
 export function FileDownload({
@@ -34,16 +35,12 @@ export function FileDownload({
   }, [download]);
 
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-zinc-600">
-        Il download di <span className="font-mono">{filename}</span> è iniziato.
+    <div className="space-y-4">
+      <p className="text-sm text-dim">
+        The download of <span className="font-mono text-amber">{filename}</span> has started.
       </p>
-      <button
-        type="button"
-        onClick={download}
-        className="inline-block rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
-      >
-        Scarica di nuovo
+      <button type="button" onClick={download} className={`${GHOST_BUTTON} w-full sm:w-auto`}>
+        Download again
       </button>
     </div>
   );

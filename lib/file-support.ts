@@ -21,7 +21,7 @@ export interface SupportedType {
 /** Supported types grouped for display. */
 export const SUPPORTED_FILE_GROUPS: { label: string; items: SupportedType[] }[] = [
   {
-    label: "Immagini",
+    label: "Images",
     items: [
       { mime: "image/png", label: "PNG", ext: "png" },
       { mime: "image/jpeg", label: "JPG", ext: "jpg", altExts: ["jpeg"] },
@@ -31,7 +31,7 @@ export const SUPPORTED_FILE_GROUPS: { label: string; items: SupportedType[] }[] 
     ],
   },
   {
-    label: "Documenti",
+    label: "Documents",
     items: [
       { mime: "application/pdf", label: "PDF", ext: "pdf" },
       { mime: "text/plain", label: "TXT", ext: "txt" },
@@ -39,7 +39,7 @@ export const SUPPORTED_FILE_GROUPS: { label: string; items: SupportedType[] }[] 
     ],
   },
   {
-    label: "Archivi",
+    label: "Archives",
     items: [{ mime: "application/zip", label: "ZIP", ext: "zip" }],
   },
 ];

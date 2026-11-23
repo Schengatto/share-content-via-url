@@ -1,0 +1,24 @@
+name: share-secret
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        PUBLIC_ORIGIN: https://share-secret.schengatto.com
+    image: share-secret:latest
+    container_name: share-secret
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /app/data
+      PUBLIC_ORIGIN: https://share-secret.schengatto.com
+      RATE_LIMIT: "10"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: gazette_gazette-net
+    external: true
