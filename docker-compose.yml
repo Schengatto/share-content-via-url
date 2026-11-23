@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     environment:
       DATA_DIR: /app/data
+      PUBLIC_ORIGIN: https://share-secret.schengatto.com
       RATE_LIMIT: "10"
     volumes:
       - ./data:/app/data

@@ -19,6 +19,11 @@ export function appBlobs(): BlobStore {
   return blobsSingleton;
 }
 
+export function shareUrl(requestOrigin: string, token: string): string {
+  const origin = process.env.PUBLIC_ORIGIN?.replace(/\/+$/, "") || requestOrigin;
+  return `${origin}/s/${token}`;
+}
+
 /**
  * Run the bulk cleanup once on startup, then on a background interval so that
  * time-expired shares that are never re-accessed don't linger on disk until the
