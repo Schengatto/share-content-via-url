@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 import { BrandHeader } from "../../brand-header";
+import { COMPACT_PRIMARY_BUTTON, GHOST_BUTTON, PRIMARY_BUTTON } from "../../buttons";
 import { FileDownload } from "./file-download";
 import { revealShare, type RevealResult } from "./actions";
 
-const PRIMARY =
-  "inline-flex items-center justify-center gap-2.5 rounded-[10px] bg-amber px-5 py-3.5 text-[15px] font-semibold text-amber-ink transition hover:brightness-105 active:translate-y-px disabled:opacity-50";
 
 function LockIcon() {
   return (
@@ -36,9 +35,9 @@ function Envelope({
   children: React.ReactNode;
 }) {
   return (
-    <div className="envelope-flap relative overflow-hidden rounded-[14px] border border-edge bg-panel px-9 pb-9 pt-12 text-center">
+    <div className="envelope-flap relative overflow-hidden rounded-[14px] border border-edge bg-panel px-6 pb-7 pt-10 text-center sm:px-9 sm:pb-9 sm:pt-12">
       {seal}
-      <h1 className="mb-2.5 text-[26px] font-semibold tracking-[-0.02em]">{title}</h1>
+      <h1 className="mb-2.5 text-[22px] font-semibold leading-tight tracking-[-0.02em] sm:text-[26px]">{title}</h1>
       {children}
     </div>
   );
@@ -70,7 +69,7 @@ export function RevealGate({ token }: { token: string }) {
             Breaking the seal may use the last view. After that, the content is
             deleted for good, so be ready to save it.
           </p>
-          <button type="button" onClick={reveal} disabled={phase === "loading"} className={PRIMARY}>
+          <button type="button" onClick={reveal} disabled={phase === "loading"} className={`${PRIMARY_BUTTON} w-full sm:w-auto`}>
             {phase === "loading" ? "Breaking the seal…" : "Break the seal"}
           </button>
         </Envelope>
@@ -102,7 +101,7 @@ export function RevealGate({ token }: { token: string }) {
           </p>
           <a
             href="/"
-            className="inline-flex items-center justify-center rounded-[10px] border border-edge px-5 py-3.5 text-[15px] font-semibold text-ink hover:border-dim"
+            className={`${GHOST_BUTTON} w-full sm:w-auto`}
           >
             Create your own
           </a>
@@ -116,11 +115,11 @@ export function RevealGate({ token }: { token: string }) {
       <BrandHeader status="opened" tone="burned" />
       <div className="rounded-[14px] border border-edge bg-panel">
         {result.kind === "text" ? (
-          <pre className="whitespace-pre-wrap break-words p-[22px] font-mono text-sm leading-[1.7]">
+          <pre className="whitespace-pre-wrap break-words p-4 font-mono sm:p-[22px] text-sm leading-[1.7]">
             {result.text}
           </pre>
         ) : (
-          <div className="p-[22px]">
+          <div className="p-4 sm:p-[22px]">
             <FileDownload filename={result.filename} mime={result.mime} base64={result.base64} />
           </div>
         )}
@@ -141,13 +140,13 @@ function RevealFooter({ text }: { text: string | null }) {
   }
 
   return (
-    <div className="flex items-center justify-between gap-4 border-t border-edge px-[18px] py-3 text-[13px] text-ember">
+    <div className="flex items-center justify-between gap-4 border-t border-edge py-2 pl-4 pr-2 text-[13px] leading-snug text-ember sm:pl-[18px]">
       <span>This page may be the only copy left. Save it now.</span>
       {text !== null && (
         <button
           type="button"
           onClick={copy}
-          className="rounded-[10px] bg-amber px-3.5 py-2 text-sm font-semibold text-amber-ink hover:brightness-105"
+          className={COMPACT_PRIMARY_BUTTON}
         >
           {copied ? "Copied" : "Copy"}
         </button>

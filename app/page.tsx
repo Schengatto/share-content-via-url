@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { BrandHeader } from "./brand-header";
+import { COMPACT_PRIMARY_BUTTON, DANGER_BUTTON, GHOST_BUTTON, PRIMARY_BUTTON } from "./buttons";
 import { FileDropzone } from "./file-dropzone";
 import {
   DEFAULT_EXPIRY,
@@ -23,10 +24,9 @@ type CreatedLink = {
   kind: Kind;
 };
 
-const BUTTON =
-  "inline-flex items-center justify-center gap-2.5 rounded-[10px] px-5 py-3.5 text-[15px] font-semibold transition active:translate-y-px disabled:opacity-50";
-const PRIMARY = `${BUTTON} bg-amber text-amber-ink hover:brightness-105`;
-const GHOST = `${BUTTON} border border-edge text-ink hover:border-dim`;
+const PAGE = "mx-auto w-full max-w-[640px] px-5 py-10 sm:py-16";
+const HEADLINE = "mb-3.5 text-[clamp(30px,4.6vw,46px)] font-semibold leading-[1.06] tracking-[-0.03em]";
+const LEAD = "mb-7 max-w-[46ch] text-dim sm:mb-9";
 const OPTION_LABEL = "mb-2 block font-mono text-[11.5px] uppercase tracking-[0.06em] text-dim";
 const SELECT = "w-full rounded-lg border border-edge bg-raise px-2.5 py-2 text-sm text-ink";
 
@@ -76,14 +76,14 @@ export default function CreatePage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[640px] px-5 py-16">
+    <main className={PAGE}>
       <BrandHeader status="encrypted at rest" />
-      <h1 className="mb-3.5 text-[clamp(30px,4.6vw,46px)] font-semibold leading-[1.06] tracking-[-0.03em]">
+      <h1 className={HEADLINE}>
         Leave it in the drop.
         <br />
         <em className="not-italic text-amber">Read once</em>, then burned.
       </h1>
-      <p className="mb-9 max-w-[46ch] text-dim">
+      <p className={LEAD}>
         Encrypted with a key derived from the link itself. Without the link, the
         server cannot open what it stores.
       </p>
@@ -109,7 +109,7 @@ export default function CreatePage() {
                 role="tab"
                 aria-selected={kind === option}
                 onClick={() => setKind(option)}
-                className={`-mb-px border-b-2 px-[18px] py-3.5 text-[13.5px] font-medium ${
+                className={`-mb-px flex-1 border-b-2 px-[18px] py-3.5 sm:flex-none text-[13.5px] font-medium ${
                   kind === option ? "border-amber text-ink" : "border-transparent text-dim hover:text-ink"
                 }`}
               >
@@ -132,7 +132,7 @@ export default function CreatePage() {
           )}
 
           <div className="grid grid-cols-2 border-t border-edge">
-            <label className="px-[18px] py-3.5">
+            <label className="px-4 py-3.5 sm:px-[18px]">
               <span className={OPTION_LABEL}>Burn after</span>
               <select value={views} onChange={(e) => setViews(e.target.value)} className={SELECT}>
                 {VIEW_OPTIONS.map((option) => (
@@ -142,7 +142,7 @@ export default function CreatePage() {
                 ))}
               </select>
             </label>
-            <label className="border-l border-edge px-[18px] py-3.5">
+            <label className="border-l border-edge px-4 py-3.5 sm:px-[18px]">
               <span className={OPTION_LABEL}>Or at</span>
               <select
                 value={expiry}
@@ -159,9 +159,9 @@ export default function CreatePage() {
           </div>
         </div>
 
-        <button type="submit" disabled={!canSubmit} className={`${PRIMARY} mt-[18px] w-full`}>
+        <button type="submit" disabled={!canSubmit} className={`${PRIMARY_BUTTON} mt-[18px] w-full`}>
           {loading ? "Sealing…" : "Seal and create link"}
-          <span className="rounded bg-black/15 px-1.5 py-0.5 font-mono text-[11px] font-normal">
+          <span className="hidden rounded bg-black/15 px-1.5 py-0.5 font-mono text-[11px] font-normal sm:inline">
             Ctrl ↵
           </span>
         </button>
@@ -205,9 +205,9 @@ function LinkReady({ link, onReset }: { link: CreatedLink; onReset: () => void }
   ];
 
   return (
-    <main className="mx-auto w-full max-w-[640px] px-5 py-16">
+    <main className={PAGE}>
       <BrandHeader status={burned ? "burned" : "sealed"} tone={burned ? "burned" : "live"} />
-      <h1 className="mb-3.5 text-[clamp(30px,4.6vw,46px)] font-semibold leading-[1.06] tracking-[-0.03em]">
+      <h1 className={HEADLINE}>
         {burned ? (
           "Burned. The link no longer works."
         ) : (
@@ -216,22 +216,22 @@ function LinkReady({ link, onReset }: { link: CreatedLink; onReset: () => void }
           </>
         )}
       </h1>
-      <p className="mb-9 max-w-[46ch] text-dim">
+      <p className={LEAD}>
         {burned
           ? "The content has been deleted from the server."
           : "We cannot show it again: we only keep a hash of it."}
       </p>
 
       <div className={`rounded-[14px] border border-edge bg-panel ${burned ? "opacity-50" : ""}`}>
-        <div className="flex items-center gap-2.5 py-2 pl-[18px] pr-2">
+        <div className="flex items-center gap-2.5 py-2 pl-4 pr-2 sm:pl-[18px]">
           <code className="flex-1 truncate font-mono text-[13.5px] text-amber">{link.url}</code>
-          <button type="button" onClick={copy} disabled={burned} className={`${PRIMARY} px-4 py-2.5`}>
+          <button type="button" onClick={copy} disabled={burned} className={COMPACT_PRIMARY_BUTTON}>
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
         <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-b-[14px] border-t border-edge bg-edge">
           {summary.map((item) => (
-            <div key={item.label} className="bg-panel px-[18px] py-3.5">
+            <div key={item.label} className="min-w-0 bg-panel px-3.5 py-3.5 sm:px-[18px]">
               <dt className="font-mono text-[11px] uppercase tracking-[0.06em] text-dim">{item.label}</dt>
               <dd className="font-medium">{item.value}</dd>
             </div>
@@ -239,8 +239,8 @@ function LinkReady({ link, onReset }: { link: CreatedLink; onReset: () => void }
         </dl>
       </div>
 
-      <div className="mt-[18px] flex flex-wrap gap-2.5">
-        <button type="button" onClick={onReset} className={GHOST}>
+      <div className="mt-[18px] flex gap-2.5">
+        <button type="button" onClick={onReset} className={`${GHOST_BUTTON} flex-1`}>
           New secret
         </button>
         {!burned && (
@@ -248,7 +248,7 @@ function LinkReady({ link, onReset }: { link: CreatedLink; onReset: () => void }
             type="button"
             onClick={burnNow}
             disabled={burn === "burning"}
-            className={`${GHOST} text-ember`}
+            className={`${DANGER_BUTTON} flex-1`}
           >
             {burn === "burning" ? "Burning…" : "Burn it now"}
           </button>

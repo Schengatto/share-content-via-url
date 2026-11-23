@@ -68,7 +68,7 @@ export function FileDropzone({
             type="button"
             onClick={clear}
             aria-label="Remove file"
-            className="rounded-md p-1.5 text-dim hover:bg-edge hover:text-ink"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-dim hover:bg-edge hover:text-ink"
           >
             <XIcon />
           </button>
@@ -86,7 +86,7 @@ export function FileDropzone({
             setDragOver(false);
             accept(e.dataTransfer.files?.[0]);
           }}
-          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed px-6 py-11 text-center transition-colors ${
+          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed px-5 py-8 text-center sm:px-6 sm:py-11 transition-colors ${
             dragOver
               ? "border-amber bg-amber/5"
               : "border-edge-strong hover:border-dim"

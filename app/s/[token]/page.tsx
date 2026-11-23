@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 };
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <main className="mx-auto w-full max-w-[560px] px-5 py-16">{children}</main>;
+  return <main className="mx-auto w-full max-w-[560px] px-5 py-10 sm:py-16">{children}</main>;
 }
 
 /**
