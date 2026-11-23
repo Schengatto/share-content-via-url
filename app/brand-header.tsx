@@ -12,7 +12,7 @@ export function BrandHeader({
   tone?: keyof typeof STATUS_DOT;
 }) {
   return (
-    <header className="mb-10 flex sm:mb-14 items-baseline justify-between">
+    <header className="mb-8 flex sm:mb-10 items-baseline justify-between">
       <a href="/" className="font-mono text-[13px] font-medium tracking-wide text-ink">
         share<span className="text-amber">/</span>secret
       </a>

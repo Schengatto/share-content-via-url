@@ -86,7 +86,7 @@ export function FileDropzone({
             setDragOver(false);
             accept(e.dataTransfer.files?.[0]);
           }}
-          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed px-5 py-8 text-center sm:px-6 sm:py-11 transition-colors ${
+          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed px-5 py-7 text-center sm:px-6 sm:py-8 transition-colors ${
             dragOver
               ? "border-amber bg-amber/5"
               : "border-edge-strong hover:border-dim"

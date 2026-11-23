@@ -24,9 +24,9 @@ type CreatedLink = {
   kind: Kind;
 };
 
-const PAGE = "mx-auto w-full max-w-[640px] px-5 py-10 sm:py-16";
+const PAGE = "mx-auto w-full max-w-[640px] px-5 py-8 sm:py-10";
 const HEADLINE = "mb-3.5 text-[clamp(30px,4.6vw,46px)] font-semibold leading-[1.06] tracking-[-0.03em]";
-const LEAD = "mb-7 max-w-[46ch] text-dim sm:mb-9";
+const LEAD = "mb-6 max-w-[46ch] text-dim sm:mb-7";
 const OPTION_LABEL = "mb-2 block font-mono text-[11.5px] uppercase tracking-[0.06em] text-dim";
 const SELECT = "w-full rounded-lg border border-edge bg-raise px-2.5 py-2 text-sm text-ink";
 
@@ -122,10 +122,10 @@ export default function CreatePage() {
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              rows={7}
+              rows={5}
               aria-label="Secret text"
               placeholder="Paste an API key, a password, a recovery phrase…"
-              className="block min-h-[190px] w-full resize-y bg-transparent p-[18px] font-mono text-sm leading-[1.65] text-ink outline-none placeholder:text-faint"
+              className="block min-h-[150px] w-full resize-y bg-transparent p-[18px] font-mono text-sm leading-[1.65] text-ink outline-none placeholder:text-faint"
             />
           ) : (
             <FileDropzone file={file} onChange={setFile} />
