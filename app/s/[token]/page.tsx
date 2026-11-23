@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { appDb } from "@/lib/app";
+import { shareStatus } from "@/lib/store";
 import { RevealGate } from "./reveal-gate";
 
 export const runtime = "nodejs";
@@ -29,9 +31,10 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The GET render is side-effect free: it only shows the reveal gate. The share
- * is consumed by an explicit user action (Server Action) inside RevealGate, so
- * prefetchers and link-preview bots can never burn a single-use link.
+ * The GET render is side-effect free: it only reads whether the share is still
+ * available, so a used or expired link shows the empty state right away. The
+ * share is consumed by an explicit user action (Server Action) inside
+ * RevealGate, so prefetchers and link-preview bots can never burn a single-use link.
  */
 export default async function AccessPage({
   params,
@@ -39,9 +42,10 @@ export default async function AccessPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
+  const status = shareStatus(appDb(), token);
   return (
     <Shell>
-      <RevealGate token={token} />
+      <RevealGate token={token} unavailableStatus={status.available ? null : status.status} />
     </Shell>
   );
 }

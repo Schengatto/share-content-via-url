@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { BrandHeader } from "../../brand-header";
 import { COMPACT_PRIMARY_BUTTON, GHOST_BUTTON, PRIMARY_BUTTON } from "../../buttons";
@@ -43,9 +44,17 @@ function Envelope({
   );
 }
 
-export function RevealGate({ token }: { token: string }) {
-  const [phase, setPhase] = useState<"idle" | "loading" | "done">("idle");
-  const [result, setResult] = useState<RevealResult | null>(null);
+export function RevealGate({
+  token,
+  unavailableStatus,
+}: {
+  token: string;
+  unavailableStatus: 404 | 410 | null;
+}) {
+  const [phase, setPhase] = useState<"idle" | "loading" | "done">(unavailableStatus === null ? "idle" : "done");
+  const [result, setResult] = useState<RevealResult | null>(
+    unavailableStatus === null ? null : { ok: false, status: unavailableStatus },
+  );
 
   async function reveal() {
     setPhase("loading");
@@ -99,12 +108,12 @@ export function RevealGate({ token }: { token: string }) {
           <p className="mx-auto mb-7 max-w-[40ch] text-dim">
             {message} Ask the sender to seal a new one.
           </p>
-          <a
+          <Link
             href="/"
             className={`${GHOST_BUTTON} w-full sm:w-auto`}
           >
             Create your own
-          </a>
+          </Link>
         </Envelope>
       </>
     );

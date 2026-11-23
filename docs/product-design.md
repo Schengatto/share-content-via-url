@@ -90,7 +90,14 @@ Tabella `shares` (SQLite), indice unico su `token_hash`:
    salva riga (`token_hash`) + blob su disco.
 5. Risposta `{ url: "<origin>/s/<token>" }`. Il token compare **solo** nella response.
 
-### Accesso — `GET /s/<token>` (server component)
+### Accesso — `GET /s/<token>` (server component, sola lettura)
+La GET chiama solo `shareStatus`: lookup per `sha256(token)` e controllo di scadenza e
+visite residue, **senza** incremento, purge né decifratura. Link inesistente o già
+usato (404) o scaduto/esaurito (410) → stato vuoto subito; altrimenti la busta sigillata.
+Il consumo avviene solo con «Break the seal» (Server Action, POST): i bot delle
+anteprime e i prefetch non possono bruciare il link.
+
+### Apertura — Server Action `revealShare`
 1. `consumeShare`: `sha256(token)` → lookup. Assente → pagina **non disponibile** (404).
 2. Se `expires_at` superato **o** `access_count >= max_accesses` → **purge** + pagina gone (410).
 3. **Incremento atomico** di `access_count` con `UPDATE … WHERE` condizionale (race-safe).

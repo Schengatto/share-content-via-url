@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { openDb, type DB } from "../lib/db";
-import { createShare, consumeShare, ShareError } from "../lib/store";
+import { createShare, consumeShare, shareStatus, ShareError } from "../lib/store";
 import type { BlobStore } from "../lib/blob-store";
 
 function memBlobs(): BlobStore & { map: Map<string, Buffer> } {
@@ -132,5 +132,39 @@ describe("store", () => {
     expect(e).toBeInstanceOf(Error);
     expect(e.status).toBe(410);
     expect(e.code).toBe("GONE");
+  });
+});
+
+describe("shareStatus", () => {
+  const shareCount = () => db.prepare("SELECT COUNT(*) c FROM shares").get();
+
+  it("reports a fresh share as available without consuming an access", async () => {
+    const { token } = await createShare(db, blobs, textInput({ maxAccesses: 1 }));
+    expect(shareStatus(db, token)).toEqual({ available: true });
+    expect(shareStatus(db, token)).toEqual({ available: true });
+    expect(db.prepare("SELECT access_count FROM shares").get()).toEqual({ access_count: 0 });
+    const got = await consumeShare(db, blobs, token);
+    expect(got.content.toString()).toBe("top secret");
+  });
+
+  it("reports an unknown or already used single-use token as 404", async () => {
+    expect(shareStatus(db, "nonexistent-token")).toEqual({ available: false, status: 404 });
+    const { token } = await createShare(db, blobs, textInput({ maxAccesses: 1 }));
+    await consumeShare(db, blobs, token);
+    expect(shareStatus(db, token)).toEqual({ available: false, status: 404 });
+  });
+
+  it("reports an expired share as 410 without purging it", async () => {
+    const { token } = await createShare(db, blobs, textInput({ expiresAt: Date.now() - 1000 }));
+    expect(shareStatus(db, token)).toEqual({ available: false, status: 410 });
+    expect(shareCount()).toEqual({ c: 1 });
+    expect(blobs.map.size).toBe(1);
+  });
+
+  it("reports a share with no views left as 410 without purging it", async () => {
+    const { token } = await createShare(db, blobs, textInput({ maxAccesses: 2 }));
+    db.prepare("UPDATE shares SET access_count = 2").run();
+    expect(shareStatus(db, token)).toEqual({ available: false, status: 410 });
+    expect(shareCount()).toEqual({ c: 1 });
   });
 });

@@ -53,6 +53,26 @@ interface ShareRow {
   created_at: number;
 }
 
+export type ShareStatus = { available: true } | { available: false; status: 404 | 410 };
+
+type UsageFields = Pick<ShareRow, "expires_at" | "max_accesses" | "access_count">;
+
+function isUsedUp(row: UsageFields, now: number): boolean {
+  return (
+    (row.expires_at !== null && now > row.expires_at) ||
+    (row.max_accesses !== null && row.access_count >= row.max_accesses)
+  );
+}
+
+export function shareStatus(db: DB, token: string): ShareStatus {
+  const row = db
+    .prepare("SELECT expires_at, max_accesses, access_count FROM shares WHERE token_hash = ?")
+    .get(hashToken(token)) as UsageFields | undefined;
+  if (!row) return { available: false, status: 404 };
+  if (isUsedUp(row, Date.now())) return { available: false, status: 410 };
+  return { available: true };
+}
+
 function purge(db: DB, blobs: BlobStore, row: Pick<ShareRow, "id" | "blob_path">) {
   blobs.delete(row.blob_path);
   db.prepare("DELETE FROM shares WHERE id = ?").run(row.id);
@@ -119,10 +139,7 @@ export async function consumeShare(
   }
 
   const now = Date.now();
-  const expired =
-    (row.expires_at !== null && now > row.expires_at) ||
-    (row.max_accesses !== null && row.access_count >= row.max_accesses);
-  if (expired) {
+  if (isUsedUp(row, now)) {
     purge(db, blobs, row);
     throw new ShareError("Gone", 410, "GONE");
   }
