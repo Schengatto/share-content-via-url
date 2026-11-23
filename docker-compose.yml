@@ -1,0 +1,20 @@
+name: share-secret
+
+services:
+  app:
+    build: .
+    image: share-secret:latest
+    container_name: share-secret
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /app/data
+      RATE_LIMIT: "10"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: gazette_gazette-net
+    external: true
