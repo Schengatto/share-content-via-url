@@ -25,11 +25,11 @@ export function FileDropzone({
   function accept(candidate: File | undefined) {
     if (!candidate) return;
     if (!isSupportedFile(candidate)) {
-      setError("Tipo di file non supportato.");
+      setError("Unsupported file type.");
       return;
     }
     if (candidate.size > MAX_SIZE) {
-      setError(`File troppo grande (max ${formatBytes(MAX_SIZE)}).`);
+      setError(`File too large (max ${formatBytes(MAX_SIZE)}).`);
       return;
     }
     setError(null);
@@ -67,7 +67,7 @@ export function FileDropzone({
           <button
             type="button"
             onClick={clear}
-            aria-label="Rimuovi file"
+            aria-label="Remove file"
             className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
           >
             <XIcon />
@@ -96,8 +96,8 @@ export function FileDropzone({
             <UploadIcon />
           </span>
           <span className="text-sm text-zinc-700">
-            <span className="font-medium text-zinc-900">Trascina un file</span>{" "}
-            qui, oppure <span className="underline">sfoglia</span>
+            <span className="font-medium text-zinc-900">Drag a file</span>{" "}
+            here, or <span className="underline">browse</span>
           </span>
           <span className="text-xs text-zinc-500">
             max {formatBytes(MAX_SIZE)}
@@ -108,7 +108,7 @@ export function FileDropzone({
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-0.5">
-        <span className="text-xs font-medium text-zinc-500">Supportati:</span>
+        <span className="text-xs font-medium text-zinc-500">Supported:</span>
         {SUPPORTED_FILE_GROUPS.flatMap((group) => group.items).map((type) => (
           <span
             key={type.mime}

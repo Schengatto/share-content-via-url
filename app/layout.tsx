@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Share App",
-  description: "Condivisione sicura di file e testo con link monouso cifrati.",
+  description: "Secure sharing of files and text through encrypted single-use links.",
 };
 
 export default function RootLayout({
@@ -12,7 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="it">
+    <html lang="en">
       <body className="bg-zinc-100 text-zinc-900 antialiased">{children}</body>
     </html>
   );

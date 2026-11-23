@@ -22,10 +22,10 @@ export function RevealGate({ token }: { token: string }) {
   if (phase !== "done") {
     return (
       <>
-        <h1 className="text-xl font-semibold text-zinc-900">Contenuto condiviso</h1>
+        <h1 className="text-xl font-semibold text-zinc-900">Shared content</h1>
         <p className="mt-2 text-sm text-zinc-600">
-          Questo contenuto è monouso: una volta mostrato potrebbe non essere più
-          accessibile. Aprilo solo quando sei pronto a salvarlo.
+          This content is single-use: once revealed it may no longer be
+          available. Open it only when you are ready to save it.
         </p>
         <button
           type="button"
@@ -33,7 +33,7 @@ export function RevealGate({ token }: { token: string }) {
           disabled={phase === "loading"}
           className="mt-4 inline-block rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
         >
-          {phase === "loading" ? "Recupero…" : "Mostra contenuto"}
+          {phase === "loading" ? "Retrieving…" : "Reveal content"}
         </button>
       </>
     );
@@ -43,13 +43,13 @@ export function RevealGate({ token }: { token: string }) {
     const status = result?.status ?? 500;
     const message =
       status === 404
-        ? "Questo link non esiste o è già stato utilizzato."
+        ? "This link does not exist or has already been used."
         : status === 410
-          ? "Questo link è scaduto o ha esaurito gli accessi disponibili."
-          : "Si è verificato un errore nel recupero del contenuto.";
+          ? "This link has expired or has no accesses left."
+          : "An error occurred while retrieving the content.";
     return (
       <>
-        <h1 className="text-xl font-semibold text-zinc-900">Contenuto non disponibile</h1>
+        <h1 className="text-xl font-semibold text-zinc-900">Content not available</h1>
         <p className="mt-2 text-sm text-zinc-600">{message}</p>
       </>
     );
@@ -59,7 +59,7 @@ export function RevealGate({ token }: { token: string }) {
     // React escapes interpolated text, so it is never rendered as HTML.
     return (
       <>
-        <h1 className="text-xl font-semibold text-zinc-900">Contenuto condiviso</h1>
+        <h1 className="text-xl font-semibold text-zinc-900">Shared content</h1>
         <pre className="mt-4 whitespace-pre-wrap break-words rounded-md bg-zinc-50 p-4 text-sm text-zinc-800">
           {result.text}
         </pre>
@@ -69,9 +69,9 @@ export function RevealGate({ token }: { token: string }) {
 
   return (
     <>
-      <h1 className="text-xl font-semibold text-zinc-900">File condiviso</h1>
+      <h1 className="text-xl font-semibold text-zinc-900">Shared file</h1>
       <p className="mt-1 text-xs text-amber-600">
-        Salva il file ora: il link potrebbe non essere più accessibile dopo questa visita.
+        Save the file now: the link may no longer be available after this visit.
       </p>
       <div className="mt-4">
         <FileDownload

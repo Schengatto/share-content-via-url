@@ -36,14 +36,14 @@ export function FileDownload({
   return (
     <div className="space-y-3">
       <p className="text-sm text-zinc-600">
-        Il download di <span className="font-mono">{filename}</span> è iniziato.
+        The download of <span className="font-mono">{filename}</span> has started.
       </p>
       <button
         type="button"
         onClick={download}
         className="inline-block rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
       >
-        Scarica di nuovo
+        Download again
       </button>
     </div>
   );
