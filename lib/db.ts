@@ -23,6 +23,50 @@ CREATE TABLE IF NOT EXISTS shares (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_shares_token_hash ON shares (token_hash);
 `;
 
+export const LEGACY_PAYLOAD_FORMAT = 1;
+export const SEALED_PAYLOAD_FORMAT = 2;
+
+const MIGRATIONS = [
+  `CREATE TABLE shares_sealed (
+     id             TEXT PRIMARY KEY,
+     token_hash     TEXT NOT NULL,
+     kind           TEXT NOT NULL,
+     payload_format INTEGER NOT NULL DEFAULT ${SEALED_PAYLOAD_FORMAT},
+     filename       TEXT,
+     mime           TEXT,
+     blob_path      TEXT NOT NULL,
+     iv             BLOB NOT NULL,
+     auth_tag       BLOB NOT NULL,
+     expires_at     INTEGER,
+     max_accesses   INTEGER,
+     access_count   INTEGER NOT NULL DEFAULT 0,
+     created_at     INTEGER NOT NULL
+   );
+   INSERT INTO shares_sealed
+     (id, token_hash, kind, payload_format, filename, mime, blob_path, iv, auth_tag,
+      expires_at, max_accesses, access_count, created_at)
+   SELECT id, token_hash, kind, ${LEGACY_PAYLOAD_FORMAT}, filename, mime, blob_path, iv, auth_tag,
+          expires_at, max_accesses, access_count, created_at
+   FROM shares;
+   DROP TABLE shares;
+   ALTER TABLE shares_sealed RENAME TO shares;
+   CREATE UNIQUE INDEX idx_shares_token_hash ON shares (token_hash);`,
+];
+
+function migrate(db: DB): void {
+  const appliedVersion = db.pragma("user_version", { simple: true }) as number;
+  for (let version = appliedVersion; version < MIGRATIONS.length; version++) {
+    db.transaction(() => {
+      db.exec(MIGRATIONS[version]);
+      db.pragma(`user_version = ${version + 1}`);
+    })();
+  }
+}
+
+export function scrubDeletedData(db: DB): void {
+  db.pragma("wal_checkpoint(TRUNCATE)");
+}
+
 /** Open a SQLite database and ensure the schema exists. */
 export function openDb(path: string): DB {
   if (path !== ":memory:") {
@@ -31,7 +75,10 @@ export function openDb(path: string): DB {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  db.pragma("secure_delete = ON");
   db.exec(SCHEMA);
+  migrate(db);
+  scrubDeletedData(db);
   return db;
 }
 

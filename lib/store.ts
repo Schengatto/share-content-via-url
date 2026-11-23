@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { DB } from "./db";
+import { LEGACY_PAYLOAD_FORMAT, SEALED_PAYLOAD_FORMAT, scrubDeletedData, type DB } from "./db";
 import type { BlobStore } from "./blob-store";
 import { generateToken, hashToken, deriveKey, encrypt, decrypt } from "./crypto";
+import { openPayload, sealPayload } from "./sealed-payload";
 
 export class ShareError extends Error {
   constructor(
@@ -41,12 +42,12 @@ interface ShareRow {
   id: string;
   token_hash: string;
   kind: "text" | "file";
+  payload_format: number;
   filename: string | null;
-  mime: string;
+  mime: string | null;
   blob_path: string;
   iv: Buffer;
   auth_tag: Buffer;
-  size: number;
   expires_at: number | null;
   max_accesses: number | null;
   access_count: number;
@@ -74,8 +75,16 @@ export function shareStatus(db: DB, token: string): ShareStatus {
 }
 
 function purge(db: DB, blobs: BlobStore, row: Pick<ShareRow, "id" | "blob_path">) {
-  blobs.delete(row.blob_path);
   db.prepare("DELETE FROM shares WHERE id = ?").run(row.id);
+  scrubDeletedData(db);
+  blobs.delete(row.blob_path);
+}
+
+function contentOf(row: ShareRow, plaintext: Buffer): ConsumeResult {
+  if (row.payload_format === LEGACY_PAYLOAD_FORMAT) {
+    return { kind: row.kind, mime: row.mime ?? "application/octet-stream", filename: row.filename, content: plaintext };
+  }
+  return { kind: row.kind, ...openPayload(plaintext) };
 }
 
 /** Encrypt and persist a new share. Returns the one-time token. */
@@ -91,31 +100,32 @@ export async function createShare(
 
   const token = generateToken();
   const key = deriveKey(token);
-  const { ciphertext, iv, authTag } = encrypt(input.content, key);
+  const payload = sealPayload({ filename: input.filename ?? null, mime: input.mime }, input.content);
+  const { ciphertext, iv, authTag } = encrypt(payload, key);
 
   const id = randomUUID();
   const blobPath = id;
-  blobs.put(blobPath, ciphertext);
 
-  db.prepare(
-    `INSERT INTO shares
-      (id, token_hash, kind, filename, mime, blob_path, iv, auth_tag, size,
-       expires_at, max_accesses, access_count, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-  ).run(
-    id,
-    hashToken(token),
-    input.kind,
-    input.filename ?? null,
-    input.mime,
-    blobPath,
-    iv,
-    authTag,
-    input.content.length,
-    input.expiresAt ?? null,
-    maxAccesses,
-    Date.now(),
-  );
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO shares
+        (id, token_hash, kind, payload_format, blob_path, iv, auth_tag,
+         expires_at, max_accesses, access_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+    ).run(
+      id,
+      hashToken(token),
+      input.kind,
+      SEALED_PAYLOAD_FORMAT,
+      blobPath,
+      iv,
+      authTag,
+      input.expiresAt ?? null,
+      maxAccesses,
+      Date.now(),
+    );
+    blobs.put(blobPath, ciphertext);
+  })();
 
   return { token, id };
 }
@@ -160,19 +170,14 @@ export async function consumeShare(
   }
 
   const key = deriveKey(token);
-  const content = decrypt(blobs.get(row.blob_path), key, row.iv, row.auth_tag);
+  const plaintext = decrypt(blobs.get(row.blob_path), key, row.iv, row.auth_tag);
 
   const newCount = row.access_count + 1;
   if (row.max_accesses !== null && newCount >= row.max_accesses) {
     purge(db, blobs, row);
   }
 
-  return {
-    kind: row.kind,
-    mime: row.mime,
-    filename: row.filename,
-    content,
-  };
+  return contentOf(row, plaintext);
 }
 
 /** Revoke a share by token, deleting its row and blob. Returns true if found. */

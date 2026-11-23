@@ -67,16 +67,34 @@ Tabella `shares` (SQLite), indice unico su `token_hash`:
 | `id` | TEXT (uuid) | id interno, non esposto |
 | `token_hash` | TEXT | SHA-256 del token → lookup |
 | `kind` | TEXT | `text` \| `file` |
-| `filename` | TEXT null | nome originale (file) |
-| `mime` | TEXT | content-type |
+| `payload_format` | INTEGER | `2` = metadati sigillati nel ciphertext; `1` = legacy, metadati nelle colonne |
+| `filename` | TEXT null | solo legacy (formato 1); null per gli share nuovi |
+| `mime` | TEXT null | solo legacy (formato 1); null per gli share nuovi |
 | `blob_path` | TEXT | id del blob cifrato su disco (= `id`) |
 | `iv` | BLOB | nonce AES-GCM (12 byte) |
 | `auth_tag` | BLOB | tag GCM (16 byte) |
-| `size` | INTEGER | byte del contenuto in chiaro |
 | `expires_at` | INTEGER null | epoch ms; null = nessuna scadenza temporale |
 | `max_accesses` | INTEGER null | 1–3; null = illimitati (UI usa sempre 1–3) |
 | `access_count` | INTEGER | default 0 |
 | `created_at` | INTEGER | epoch ms |
+
+**Payload sigillato (formato 2).** Il plaintext cifrato è
+`[uint32 BE lunghezza header][header JSON {filename, mime}][contenuto]`: nome del
+file e content-type stanno solo dentro il ciphertext AES-GCM, autenticati dal tag.
+La colonna `size` è stata rimossa. Le migrazioni sono versionate con
+`PRAGMA user_version` (`lib/db.ts`); la 1 ricostruisce la tabella e marca le righe
+esistenti come formato 1, lette ancora col percorso legacy finché scadono.
+
+**Cancellazione sicura.** La connessione apre con `PRAGMA secure_delete = ON` (le
+pagine liberate sono azzerate) e dopo ogni cancellazione esegue
+`wal_checkpoint(TRUNCATE)`, così il `-wal` non conserva copie delle righe
+cancellate. I blob sono scritti `0600` e, prima dell'`unlink`, sovrascritti con
+zeri e `fsync`. Ordine: prima la riga (commit), poi il blob; la creazione scrive
+riga e blob nella stessa transazione; `purgeExpired` elimina anche i blob che
+nessuna riga referenzia. Limite: su SSD o filesystem journaled la sovrascrittura
+non garantisce la distruzione fisica dei blocchi; la garanzia forte resta la
+chiave derivata dal token, mai salvata. In chiaro restano solo `kind`, scadenza,
+contatori e `created_at`, necessari alla logica.
 
 ---
 
@@ -86,8 +104,9 @@ Tabella `shares` (SQLite), indice unico su `token_hash`:
 1. Rate-limit per IP (default 10/min). Superato → **429**.
 2. Parsing `FormData`: `kind`, `text` **oppure** `file`, `expiresAt?`, `maxAccesses` (default 1).
 3. **Content-safety** sul contenuto **in chiaro** (prima della cifratura).
-4. `createShare`: genera token 256-bit → HKDF-SHA256 → chiave AES-256 → AES-256-GCM →
-   salva riga (`token_hash`) + blob su disco.
+4. `createShare`: genera token 256-bit → HKDF-SHA256 → chiave AES-256 → sigilla
+   metadati + contenuto → AES-256-GCM → salva riga (`token_hash`) + blob su disco
+   nella stessa transazione.
 5. Risposta `{ url: "<origin>/s/<token>" }`. Il token compare **solo** nella response.
 
 ### Accesso — `GET /s/<token>` (server component, sola lettura)
@@ -103,10 +122,10 @@ anteprime e i prefetch non possono bruciare il link.
 3. **Incremento atomico** di `access_count` con `UPDATE … WHERE` condizionale (race-safe).
 4. Deriva la chiave, **decifra** (verifica `auth_tag`).
 5. `text` → reso come testo **escaped**; `file` → download lato client (base64 → Blob).
-6. Se dopo l'incremento è esaurito → **elimina blob + riga**.
+6. Se dopo l'incremento è esaurito → **elimina riga, poi blob** (cancellazione sicura, §3).
 
 ### Revoca — `DELETE /api/share/<token>`
-Elimina riga + blob per token; **404** se non trovato.
+Elimina riga, poi blob, per token (cancellazione sicura, §3); **404** se non trovato.
 
 ---
 

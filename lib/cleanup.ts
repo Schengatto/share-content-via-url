@@ -1,4 +1,4 @@
-import type { DB } from "./db";
+import { scrubDeletedData, type DB } from "./db";
 import type { BlobStore } from "./blob-store";
 
 interface PurgeRow {
@@ -6,10 +6,18 @@ interface PurgeRow {
   blob_path: string;
 }
 
+function deleteOrphanBlobs(db: DB, blobs: BlobStore): void {
+  const referenced = new Set(db.prepare("SELECT blob_path FROM shares").pluck().all() as string[]);
+  for (const blobId of blobs.list()) {
+    if (!referenced.has(blobId)) blobs.delete(blobId);
+  }
+}
+
 /**
- * Delete every share that is time-expired or access-exhausted, removing both
- * the row and its blob. Returns how many were purged. Runs lazily (on access)
- * and on startup.
+ * Delete every share that is time-expired or access-exhausted. Rows go first,
+ * in one transaction, then the journal is scrubbed and the blobs are shredded,
+ * together with any blob no row references. Returns how many shares were purged.
+ * Runs on startup and on a background interval.
  */
 export function purgeExpired(
   db: DB,
@@ -24,14 +32,10 @@ export function purgeExpired(
     )
     .all(now) as PurgeRow[];
 
-  const del = db.prepare("DELETE FROM shares WHERE id = ?");
-  const run = db.transaction((batch: PurgeRow[]) => {
-    for (const r of batch) {
-      blobs.delete(r.blob_path);
-      del.run(r.id);
-    }
-  });
-  run(rows);
+  const deleteRow = db.prepare("DELETE FROM shares WHERE id = ?");
+  db.transaction(() => rows.forEach((row) => deleteRow.run(row.id)))();
+  if (rows.length > 0) scrubDeletedData(db);
+  deleteOrphanBlobs(db, blobs);
 
   return rows.length;
 }
