@@ -2,7 +2,10 @@ name: share-secret
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        PUBLIC_ORIGIN: https://share-secret.schengatto.com
     image: share-secret:latest
     container_name: share-secret
     restart: unless-stopped

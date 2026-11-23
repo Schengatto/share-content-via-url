@@ -1,4 +1,6 @@
 FROM node:24-bookworm-slim AS build
+ARG PUBLIC_ORIGIN
+ENV PUBLIC_ORIGIN=$PUBLIC_ORIGIN
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
