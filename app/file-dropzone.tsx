@@ -86,7 +86,7 @@ export function FileDropzone({
             setDragOver(false);
             accept(e.dataTransfer.files?.[0]);
           }}
-          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed px-5 py-7 text-center sm:px-6 sm:py-8 transition-colors ${
+          className={`flex cursor-pointer items-center justify-center gap-3 rounded-[10px] border-[1.5px] border-dashed px-5 py-6 text-left transition-colors ${
             dragOver
               ? "border-amber bg-amber/5"
               : "border-edge-strong hover:border-dim"
@@ -95,12 +95,12 @@ export function FileDropzone({
           <span className="text-dim">
             <UploadIcon />
           </span>
-          <span className="text-sm text-dim">
-            <span className="font-medium text-ink">Drop a file</span> or{" "}
-            <span className="underline underline-offset-4">browse</span>
-          </span>
-          <span className="font-mono text-xs text-dim">
-            max {formatBytes(MAX_SIZE)}
+          <span className="flex flex-col text-sm text-dim">
+            <span>
+              <span className="font-medium text-ink">Drop a file</span> or{" "}
+              <span className="underline underline-offset-4">browse</span>
+            </span>
+            <span className="font-mono text-xs">max {formatBytes(MAX_SIZE)}</span>
           </span>
         </label>
       )}

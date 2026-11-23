@@ -24,7 +24,7 @@ type CreatedLink = {
   kind: Kind;
 };
 
-const PAGE = "mx-auto w-full max-w-[640px] px-5 py-8 sm:py-10";
+const PAGE = "mx-auto w-full max-w-[640px] px-5 py-8";
 const HEADLINE = "mb-3.5 text-[clamp(30px,4.6vw,46px)] font-semibold leading-[1.06] tracking-[-0.03em]";
 const LEAD = "mb-6 max-w-[46ch] text-dim sm:mb-7";
 const OPTION_LABEL = "mb-2 block font-mono text-[11.5px] uppercase tracking-[0.06em] text-dim";
