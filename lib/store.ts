@@ -3,6 +3,19 @@ import { LEGACY_PAYLOAD_FORMAT, SEALED_PAYLOAD_FORMAT, scrubDeletedData, type DB
 import type { BlobStore } from "./blob-store";
 import { generateToken, hashToken, deriveKey, encrypt, decrypt } from "./crypto";
 import { openPayload, sealPayload } from "./sealed-payload";
+import { hashPassword, verifyPassword } from "./password";
+import {
+  LOCK_DURATION_MS,
+  MAX_PASSWORD_LENGTH,
+  MAX_TTL_SECONDS,
+  MAX_VIEWS,
+  MIN_PASSWORD_LENGTH,
+  MIN_TTL_SECONDS,
+  MIN_VIEWS,
+  isValidPassword,
+  isValidTtlSeconds,
+  isValidViews,
+} from "./share-options";
 
 export class ShareError extends Error {
   constructor(
@@ -15,15 +28,17 @@ export class ShareError extends Error {
   }
 }
 
-export interface CreateInput {
+export interface ShareOptions {
+  maxAccesses: number;
+  ttlSeconds: number;
+  password?: string;
+}
+
+export interface CreateInput extends ShareOptions {
   kind: "text" | "file";
   content: Buffer;
   mime: string;
   filename?: string;
-  /** epoch ms; null = no time limit */
-  expiresAt?: number | null;
-  /** 1..3; null = unlimited */
-  maxAccesses?: number | null;
 }
 
 export interface CreateResult {
@@ -37,6 +52,12 @@ export interface ConsumeResult {
   filename: string | null;
   content: Buffer;
 }
+
+export type ConsumeOutcome =
+  | { status: "opened"; share: ConsumeResult }
+  | { status: "password-required" }
+  | { status: "wrong-password"; retryAfterMs: number }
+  | { status: "locked"; retryAfterMs: number };
 
 interface ShareRow {
   id: string;
@@ -52,9 +73,13 @@ interface ShareRow {
   max_accesses: number | null;
   access_count: number;
   created_at: number;
+  password_hash: string | null;
+  locked_until: number | null;
 }
 
-export type ShareStatus = { available: true } | { available: false; status: 404 | 410 };
+export type ShareStatus =
+  | { available: true; passwordProtected: boolean; lockedUntil: number | null }
+  | { available: false; status: 404 | 410 };
 
 type UsageFields = Pick<ShareRow, "expires_at" | "max_accesses" | "access_count">;
 
@@ -65,13 +90,40 @@ function isUsedUp(row: UsageFields, now: number): boolean {
   );
 }
 
+function activeLockUntil(row: Pick<ShareRow, "locked_until">, now: number): number | null {
+  return row.locked_until !== null && row.locked_until > now ? row.locked_until : null;
+}
+
 export function shareStatus(db: DB, token: string): ShareStatus {
   const row = db
-    .prepare("SELECT expires_at, max_accesses, access_count FROM shares WHERE token_hash = ?")
-    .get(hashToken(token)) as UsageFields | undefined;
+    .prepare(
+      "SELECT expires_at, max_accesses, access_count, password_hash, locked_until FROM shares WHERE token_hash = ?",
+    )
+    .get(hashToken(token)) as (UsageFields & Pick<ShareRow, "password_hash" | "locked_until">) | undefined;
   if (!row) return { available: false, status: 404 };
-  if (isUsedUp(row, Date.now())) return { available: false, status: 410 };
-  return { available: true };
+  const now = Date.now();
+  if (isUsedUp(row, now)) return { available: false, status: 410 };
+  return { available: true, passwordProtected: row.password_hash !== null, lockedUntil: activeLockUntil(row, now) };
+}
+
+export function assertValidShareOptions({ maxAccesses, ttlSeconds, password }: ShareOptions): void {
+  if (!isValidViews(maxAccesses)) {
+    throw new ShareError(`maxAccesses must be an integer from ${MIN_VIEWS} to ${MAX_VIEWS}`, 400, "BAD_MAX_ACCESSES");
+  }
+  if (!isValidTtlSeconds(ttlSeconds)) {
+    throw new ShareError(
+      `ttlSeconds must be an integer from ${MIN_TTL_SECONDS} to ${MAX_TTL_SECONDS}`,
+      400,
+      "BAD_TTL",
+    );
+  }
+  if (password !== undefined && !isValidPassword(password)) {
+    throw new ShareError(
+      `Password must be ${MIN_PASSWORD_LENGTH} to ${MAX_PASSWORD_LENGTH} characters`,
+      400,
+      "BAD_PASSWORD",
+    );
+  }
 }
 
 function purge(db: DB, blobs: BlobStore, row: Pick<ShareRow, "id" | "blob_path">) {
@@ -93,10 +145,9 @@ export async function createShare(
   blobs: BlobStore,
   input: CreateInput,
 ): Promise<CreateResult> {
-  const maxAccesses = input.maxAccesses ?? null;
-  if (maxAccesses !== null && ![1, 2, 3].includes(maxAccesses)) {
-    throw new ShareError("max_accesses must be 1..3", 400, "BAD_MAX_ACCESSES");
-  }
+  assertValidShareOptions(input);
+  const createdAt = Date.now();
+  const passwordHash = input.password === undefined ? null : hashPassword(input.password);
 
   const token = generateToken();
   const key = deriveKey(token);
@@ -110,8 +161,8 @@ export async function createShare(
     db.prepare(
       `INSERT INTO shares
         (id, token_hash, kind, payload_format, blob_path, iv, auth_tag,
-         expires_at, max_accesses, access_count, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+         expires_at, max_accesses, access_count, created_at, password_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
     ).run(
       id,
       hashToken(token),
@@ -120,9 +171,10 @@ export async function createShare(
       blobPath,
       iv,
       authTag,
-      input.expiresAt ?? null,
-      maxAccesses,
-      Date.now(),
+      createdAt + input.ttlSeconds * 1000,
+      input.maxAccesses,
+      createdAt,
+      passwordHash,
     );
     blobs.put(blobPath, ciphertext);
   })();
@@ -134,11 +186,20 @@ export async function createShare(
  * Validate, atomically consume one access, decrypt and return the content.
  * Purges the share when expired/exhausted. Throws ShareError(404|410).
  */
+function lockedOutcome(db: DB, id: string, now: number): ConsumeOutcome {
+  const current = db.prepare("SELECT locked_until FROM shares WHERE id = ?").get(id) as
+    | { locked_until: number | null }
+    | undefined;
+  if (!current) throw new ShareError("Gone", 410, "GONE");
+  return { status: "locked", retryAfterMs: Math.max(0, (current.locked_until ?? now) - now) };
+}
+
 export async function consumeShare(
   db: DB,
   blobs: BlobStore,
   token: string,
-): Promise<ConsumeResult> {
+  password = "",
+): Promise<ConsumeOutcome> {
   const tokenHash = hashToken(token);
   const row = db
     .prepare("SELECT * FROM shares WHERE token_hash = ?")
@@ -152,6 +213,23 @@ export async function consumeShare(
   if (isUsedUp(row, now)) {
     purge(db, blobs, row);
     throw new ShareError("Gone", 410, "GONE");
+  }
+
+  const lockedUntil = activeLockUntil(row, now);
+  if (lockedUntil !== null) {
+    return { status: "locked", retryAfterMs: lockedUntil - now };
+  }
+
+  if (row.password_hash !== null) {
+    if (password === "") return { status: "password-required" };
+    const claim = db
+      .prepare("UPDATE shares SET locked_until = ? WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)")
+      .run(now + LOCK_DURATION_MS, row.id, now);
+    if (claim.changes !== 1) return lockedOutcome(db, row.id, now);
+    if (!verifyPassword(password, row.password_hash)) {
+      return { status: "wrong-password", retryAfterMs: LOCK_DURATION_MS };
+    }
+    db.prepare("UPDATE shares SET locked_until = NULL WHERE id = ?").run(row.id);
   }
 
   // Atomic, race-safe increment: only succeeds if still valid right now.
@@ -177,7 +255,7 @@ export async function consumeShare(
     purge(db, blobs, row);
   }
 
-  return contentOf(row, plaintext);
+  return { status: "opened", share: contentOf(row, plaintext) };
 }
 
 /** Revoke a share by token, deleting its row and blob. Returns true if found. */

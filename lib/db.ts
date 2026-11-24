@@ -51,10 +51,17 @@ const MIGRATIONS = [
    DROP TABLE shares;
    ALTER TABLE shares_sealed RENAME TO shares;
    CREATE UNIQUE INDEX idx_shares_token_hash ON shares (token_hash);`,
+  `ALTER TABLE shares ADD COLUMN password_hash TEXT;
+   ALTER TABLE shares ADD COLUMN locked_until INTEGER;`,
 ];
 
 function migrate(db: DB): void {
   const appliedVersion = db.pragma("user_version", { simple: true }) as number;
+  if (appliedVersion > MIGRATIONS.length) {
+    throw new Error(
+      `Database schema version ${appliedVersion} is newer than this app supports (${MIGRATIONS.length}). Upgrade the app before opening this database.`,
+    );
+  }
   for (let version = appliedVersion; version < MIGRATIONS.length; version++) {
     db.transaction(() => {
       db.exec(MIGRATIONS[version]);
@@ -76,8 +83,13 @@ export function openDb(path: string): DB {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma("secure_delete = ON");
-  db.exec(SCHEMA);
-  migrate(db);
+  try {
+    db.exec(SCHEMA);
+    migrate(db);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   scrubDeletedData(db);
   return db;
 }

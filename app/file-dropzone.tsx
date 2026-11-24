@@ -43,7 +43,7 @@ export function FileDropzone({
   }
 
   return (
-    <div className="space-y-3 p-[18px]">
+    <div className="space-y-3 px-[18px] py-3.5">
       <input
         ref={inputRef}
         id={inputId}
@@ -86,7 +86,7 @@ export function FileDropzone({
             setDragOver(false);
             accept(e.dataTransfer.files?.[0]);
           }}
-          className={`flex cursor-pointer items-center justify-center gap-3 rounded-[10px] border-[1.5px] border-dashed px-5 py-6 text-left transition-colors ${
+          className={`flex cursor-pointer items-center justify-center gap-3 rounded-[10px] border-[1.5px] border-dashed px-5 py-3 text-left transition-colors ${
             dragOver
               ? "border-amber bg-amber/5"
               : "border-edge-strong hover:border-dim"
@@ -107,7 +107,7 @@ export function FileDropzone({
 
       {error && <p className="text-sm text-ember">{error}</p>}
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-0.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-0.5 [@media(max-height:740px)]:hidden">
         <span className="font-mono text-[11px] uppercase tracking-wider text-dim">Supported</span>
         {SUPPORTED_FILE_GROUPS.flatMap((group) => group.items).map((type) => (
           <span

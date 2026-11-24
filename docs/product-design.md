@@ -1,6 +1,6 @@
 # Share App — Product Design
 
-**Ultimo allineamento:** 2026-06-29 (toolchain: npm + dipendenze freezate all'ultima versione, Next 16 / Tailwind 4; UI upload: dropzone drag&drop + badge tipi supportati da `lib/file-support.ts`)
+**Ultimo allineamento:** 2026-11-24 (SHS-4: visite 1–100, scadenza obbligatoria 1 ora–365 giorni, password opzionale con blocco di 5 minuti)
 **Stato:** MVP implementato (lib + route + UI), build e test verdi.
 
 Documento canonico e sempre aggiornato dell'app: architettura, modello dati,
@@ -18,8 +18,14 @@ identificatore sia da segreto. Il contenuto è **cifrato a riposo** con una chia
 
 Ogni condivisione ha regole di scadenza **combinabili**:
 
-- **numero massimo di accessi** 1–3 (default 1, monouso) — consumo alla prima apertura;
-- **scadenza temporale** opzionale (timestamp).
+- **numero massimo di accessi** 1–100 (default 1, monouso), slider nella UI;
+- **scadenza temporale** sempre presente, da 1 ora a 365 giorni (default 24 ore);
+  lo slider ha gli stop 1–24 ore, poi 2, 3, 4, 5, 6, 7, 14, 30, 60, 90, 180, 365 giorni.
+
+Opzionalmente una **password** (8–128 caratteri). È un cancello d'accesso, non
+entra nella chiave di cifratura. Una password sbagliata blocca lo share per
+5 minuti lato server, senza consumare visite; durante il blocco nessuna password
+viene verificata. Limiti e default stanno solo in `lib/share-options.ts`.
 
 ---
 
@@ -73,17 +79,20 @@ Tabella `shares` (SQLite), indice unico su `token_hash`:
 | `blob_path` | TEXT | id del blob cifrato su disco (= `id`) |
 | `iv` | BLOB | nonce AES-GCM (12 byte) |
 | `auth_tag` | BLOB | tag GCM (16 byte) |
-| `expires_at` | INTEGER null | epoch ms; null = nessuna scadenza temporale |
-| `max_accesses` | INTEGER null | 1–3; null = illimitati (UI usa sempre 1–3) |
+| `expires_at` | INTEGER null | epoch ms; sempre valorizzato per gli share nuovi (`created_at` + 1 ora–365 giorni) |
+| `max_accesses` | INTEGER null | 1–100 per gli share nuovi |
 | `access_count` | INTEGER | default 0 |
 | `created_at` | INTEGER | epoch ms |
+| `password_hash` | TEXT null | `scrypt$N$r$p$salt$hash` (`lib/password.ts`); null = senza password |
+| `locked_until` | INTEGER null | epoch ms di fine blocco dopo una password sbagliata |
 
 **Payload sigillato (formato 2).** Il plaintext cifrato è
 `[uint32 BE lunghezza header][header JSON {filename, mime}][contenuto]`: nome del
 file e content-type stanno solo dentro il ciphertext AES-GCM, autenticati dal tag.
 La colonna `size` è stata rimossa. Le migrazioni sono versionate con
 `PRAGMA user_version` (`lib/db.ts`); la 1 ricostruisce la tabella e marca le righe
-esistenti come formato 1, lette ancora col percorso legacy finché scadono.
+esistenti come formato 1, lette ancora col percorso legacy finché scadono; la 2
+aggiunge `password_hash` e `locked_until`.
 
 **Cancellazione sicura.** La connessione apre con `PRAGMA secure_delete = ON` (le
 pagine liberate sono azzerate) e dopo ogni cancellazione esegue
@@ -102,8 +111,11 @@ contatori e `created_at`, necessari alla logica.
 
 ### Creazione — `POST /api/share`
 1. Rate-limit per IP (default 10/min). Superato → **429**.
-2. Parsing `FormData`: `kind`, `text` **oppure** `file`, `expiresAt?`, `maxAccesses` (default 1).
-3. **Content-safety** sul contenuto **in chiaro** (prima della cifratura).
+2. Parsing `FormData`: `kind`, `text` **oppure** `file`, `maxAccesses` (1–100, default 1),
+   `ttlSeconds` (3600–31536000, default 86400), `password?` (8–128). Fuori range → **400**;
+   `expires_at` è calcolato dall'orologio del server.
+3. **Content-safety** sul contenuto **in chiaro** (prima della cifratura). La password,
+   se presente, è salvata solo come hash scrypt.
 4. `createShare`: genera token 256-bit → HKDF-SHA256 → chiave AES-256 → sigilla
    metadati + contenuto → AES-256-GCM → salva riga (`token_hash`) + blob su disco
    nella stessa transazione.
@@ -113,16 +125,21 @@ contatori e `created_at`, necessari alla logica.
 La GET chiama solo `shareStatus`: lookup per `sha256(token)` e controllo di scadenza e
 visite residue, **senza** incremento, purge né decifratura. Link inesistente o già
 usato (404) o scaduto/esaurito (410) → stato vuoto subito; altrimenti la busta sigillata.
+La GET espone anche `passwordProtected` e la fine del blocco, così la pagina mostra
+il campo password o il countdown (calcolato sul tempo del server).
 Il consumo avviene solo con «Break the seal» (Server Action, POST): i bot delle
 anteprime e i prefetch non possono bruciare il link.
 
 ### Apertura — Server Action `revealShare`
 1. `consumeShare`: `sha256(token)` → lookup. Assente → pagina **non disponibile** (404).
 2. Se `expires_at` superato **o** `access_count >= max_accesses` → **purge** + pagina gone (410).
-3. **Incremento atomico** di `access_count` con `UPDATE … WHERE` condizionale (race-safe).
-4. Deriva la chiave, **decifra** (verifica `auth_tag`).
-5. `text` → reso come testo **escaped**; `file` → download lato client (base64 → Blob).
-6. Se dopo l'incremento è esaurito → **elimina riga, poi blob** (cancellazione sicura, §3).
+3. Se `locked_until` è nel futuro → `locked` col tempo residuo, senza verificare la password.
+4. Se c'è `password_hash`: password assente → `password-required`; sbagliata →
+   `locked_until = now + 5 min` e `wrong-password`. In entrambi i casi nessuna visita consumata.
+5. **Incremento atomico** di `access_count` con `UPDATE … WHERE` condizionale (race-safe).
+6. Deriva la chiave, **decifra** (verifica `auth_tag`).
+7. `text` → reso come testo **escaped**; `file` → download lato client (base64 → Blob).
+8. Se dopo l'incremento è esaurito → **elimina riga, poi blob** (cancellazione sicura, §3).
 
 ### Revoca — `DELETE /api/share/<token>`
 Elimina riga, poi blob, per token (cancellazione sicura, §3); **404** se non trovato.

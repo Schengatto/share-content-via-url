@@ -3,44 +3,126 @@
 import { useState } from "react";
 import { BrandHeader } from "./brand-header";
 import { COMPACT_PRIMARY_BUTTON, DANGER_BUTTON, GHOST_BUTTON, PRIMARY_BUTTON } from "./buttons";
+import { FIELD_LABEL, TEXT_INPUT } from "./fields";
 import { FileDropzone } from "./file-dropzone";
 import {
-  DEFAULT_EXPIRY,
-  EXPIRY_PRESETS,
-  VIEW_OPTIONS,
-  expiresAtFor,
-  expirySummary,
+  DEFAULT_TTL_STOP_INDEX,
+  DEFAULT_VIEWS,
+  LOCK_DURATION_LABEL,
+  MAX_PASSWORD_LENGTH,
+  MAX_VIEWS,
+  MIN_PASSWORD_LENGTH,
+  MIN_VIEWS,
+  TTL_STOPS,
   tokenFromShareUrl,
   viewsLabel,
-  type ExpiryPresetId,
 } from "@/lib/share-options";
 
 type Kind = "text" | "file";
 
 type CreatedLink = {
   url: string;
-  views: string;
-  expiry: ExpiryPresetId;
+  views: number;
+  expiryLabel: string;
   kind: Kind;
 };
 
-const PAGE = "mx-auto w-full max-w-[640px] px-5 py-8";
-const HEADLINE = "mb-3.5 text-[clamp(30px,4.6vw,46px)] font-semibold leading-[1.06] tracking-[-0.03em]";
-const LEAD = "mb-6 max-w-[46ch] text-dim sm:mb-7";
-const OPTION_LABEL = "mb-2 block font-mono text-[11.5px] uppercase tracking-[0.06em] text-dim";
-const SELECT = "w-full rounded-lg border border-edge bg-raise px-2.5 py-2 text-sm text-ink";
+type ScaleMark = { label: string; at: number };
+
+const PAGE = "mx-auto w-full max-w-[640px] px-5 pb-4 pt-4";
+const HEADLINE = "mb-3.5 text-[clamp(28px,3.6vw,36px)] [@media(max-height:740px)]:text-[28px] font-semibold leading-[1.06] tracking-[-0.03em]";
+const LEAD = "mb-4 max-w-[46ch] text-dim";
+const OPTION = "px-4 py-3 sm:px-[18px]";
+const OPTION_HEAD = "mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1";
+const FOOT = "text-[13px] text-dim";
+const FOOT_LINK =
+  "text-ink underline decoration-edge-strong underline-offset-[3px] transition-colors hover:decoration-amber focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber";
+const VIEW_SCALE: ScaleMark[] = [
+  { label: String(MIN_VIEWS), at: 0 },
+  { label: "50", at: (50 - MIN_VIEWS) / (MAX_VIEWS - MIN_VIEWS) },
+  { label: String(MAX_VIEWS), at: 1 },
+];
+const TTL_SCALE: ScaleMark[] = [
+  { label: "1h", at: 0 },
+  { label: TTL_STOPS[TTL_STOPS.length - 1].label, at: 1 },
+];
+
+function scaleMarkPosition(at: number): string {
+  if (at === 0) return "left-0";
+  if (at === 1) return "right-0";
+  return "range-scale-stop";
+}
+
+function RangeOption({
+  id,
+  label,
+  min,
+  max,
+  value,
+  valueText,
+  marks,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  valueText: string;
+  marks: ScaleMark[];
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className={OPTION}>
+      <div className={OPTION_HEAD}>
+        <label htmlFor={id} className={FIELD_LABEL}>
+          {label}
+        </label>
+        <output htmlFor={id} className="font-mono text-sm font-medium tabular-nums text-ink">
+          {valueText}
+        </output>
+      </div>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        aria-valuetext={valueText}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="range-slider"
+        style={{ "--fill": (value - min) / (max - min) } as React.CSSProperties}
+      />
+      <div aria-hidden="true" className="relative mt-1 h-4 font-mono text-[11px] text-dim">
+        {marks.map((mark) => (
+          <span
+            key={mark.label}
+            className={`absolute top-0 whitespace-nowrap ${scaleMarkPosition(mark.at)}`}
+            style={{ "--at": mark.at } as React.CSSProperties}
+          >
+            {mark.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function CreatePage() {
   const [kind, setKind] = useState<Kind>("text");
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [expiry, setExpiry] = useState<ExpiryPresetId>(DEFAULT_EXPIRY);
-  const [views, setViews] = useState<string>("1");
+  const [ttlStopIndex, setTtlStopIndex] = useState(DEFAULT_TTL_STOP_INDEX);
+  const [views, setViews] = useState(DEFAULT_VIEWS);
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedLink | null>(null);
 
   const canSubmit = !loading && (kind === "text" ? text.trim() !== "" : file !== null);
+  const ttlStop = TTL_STOPS[ttlStopIndex];
 
   async function submit() {
     if (!canSubmit) return;
@@ -51,18 +133,19 @@ export default function CreatePage() {
     form.set("kind", kind);
     if (kind === "text") form.set("text", text);
     else if (file) form.set("file", file);
-    const expiresAt = expiresAtFor(expiry, Date.now());
-    if (expiresAt !== null) form.set("expiresAt", String(expiresAt));
-    form.set("maxAccesses", views);
+    form.set("maxAccesses", String(views));
+    form.set("ttlSeconds", String(ttlStop.seconds));
+    if (password !== "") form.set("password", password);
 
     try {
       const res = await fetch("/api/share", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) setError(data.error ?? "Unknown error");
       else {
-        setCreated({ url: data.url, views, expiry, kind });
+        setCreated({ url: data.url, views, expiryLabel: ttlStop.label, kind });
         setText("");
         setFile(null);
+        setPassword("");
       }
     } catch {
       setError("Could not reach the server.");
@@ -77,7 +160,7 @@ export default function CreatePage() {
 
   return (
     <main className={PAGE}>
-      <BrandHeader status="encrypted at rest" />
+      <BrandHeader status="encrypted at rest" className="mb-4" />
       <h1 className={HEADLINE}>
         Leave it in the drop.
         <br />
@@ -122,44 +205,85 @@ export default function CreatePage() {
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              rows={5}
+              rows={2}
               aria-label="Secret text"
               placeholder="Paste an API key, a password, a recovery phrase…"
-              className="block min-h-[150px] w-full resize-y bg-transparent p-[18px] font-mono text-sm leading-[1.65] text-ink outline-none placeholder:text-faint"
+              className="block min-h-[72px] w-full resize-y bg-transparent px-[18px] py-4 font-mono text-sm leading-[1.65] text-ink outline-none placeholder:text-faint"
             />
           ) : (
             <FileDropzone file={file} onChange={setFile} />
           )}
 
-          <div className="grid grid-cols-2 border-t border-edge">
-            <label className="px-4 py-3.5 sm:px-[18px]">
-              <span className={OPTION_LABEL}>Burn after</span>
-              <select value={views} onChange={(e) => setViews(e.target.value)} className={SELECT}>
-                {VIEW_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {viewsLabel(option)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="border-l border-edge px-4 py-3.5 sm:px-[18px]">
-              <span className={OPTION_LABEL}>Or at</span>
-              <select
-                value={expiry}
-                onChange={(e) => setExpiry(e.target.value as ExpiryPresetId)}
-                className={SELECT}
-              >
-                {EXPIRY_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div className="grid grid-cols-1 border-t border-edge min-[560px]:grid-cols-2">
+            <RangeOption
+              id="share-views"
+              label="Burn after"
+              min={MIN_VIEWS}
+              max={MAX_VIEWS}
+              value={views}
+              valueText={viewsLabel(views)}
+              marks={VIEW_SCALE}
+              onChange={setViews}
+            />
+            <div className="border-t border-edge min-[560px]:border-l min-[560px]:border-t-0">
+              <RangeOption
+                id="share-ttl"
+                label="Or at"
+                min={0}
+                max={TTL_STOPS.length - 1}
+                value={ttlStopIndex}
+                valueText={ttlStop.label}
+                marks={TTL_SCALE}
+                onChange={setTtlStopIndex}
+              />
+            </div>
           </div>
+
+          <div className={`border-t border-edge ${OPTION}`}>
+            <div className={OPTION_HEAD}>
+              <label htmlFor="share-password" className={FIELD_LABEL}>
+                Password
+                <span className="ml-1.5 normal-case tracking-normal text-faint">optional</span>
+              </label>
+              <span id="share-password-hint" className="text-[12.5px] text-dim">
+                At least {MIN_PASSWORD_LENGTH} characters. A wrong guess locks it for {LOCK_DURATION_LABEL}.
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                id="share-password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="No password"
+                minLength={MIN_PASSWORD_LENGTH}
+                maxLength={MAX_PASSWORD_LENGTH}
+                aria-describedby="share-password-hint"
+                className={TEXT_INPUT}
+              />
+              <button
+                type="button"
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword(!showPassword)}
+                className="rounded-lg border border-edge bg-raise px-3.5 text-[13px] font-medium text-dim transition-colors hover:border-edge-strong hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          <p
+            aria-live="polite"
+            className="rounded-b-[14px] border-t border-edge bg-night px-4 py-2.5 text-[13.5px] text-dim sm:px-[18px]"
+          >
+            Burns after <b className="font-medium text-ink">{viewsLabel(views)}</b> or in{" "}
+            <b className="font-medium text-ink">{ttlStop.label}</b>, whichever comes first.
+            {password !== "" && " Password protected."}
+          </p>
         </div>
 
-        <button type="submit" disabled={!canSubmit} className={`${PRIMARY_BUTTON} mt-[18px] w-full`}>
+        <button type="submit" disabled={!canSubmit} className={`${PRIMARY_BUTTON} mt-3.5 w-full`}>
           {loading ? "Sealing…" : "Seal and create link"}
           <span className="hidden rounded bg-black/15 px-1.5 py-0.5 font-mono text-[11px] font-normal sm:inline">
             Ctrl ↵
@@ -171,8 +295,21 @@ export default function CreatePage() {
             {error}
           </p>
         )}
-        <p className="mt-3.5 text-[13px] text-dim">
-          Sent over HTTPS and encrypted before it touches the disk.
+        <p className={`mt-3 ${FOOT}`}>Sent over HTTPS and encrypted before it touches the disk.</p>
+        <p className={`mt-1 ${FOOT}`}>
+          <a
+            href="https://github.com/Schengatto/share-content-via-url"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={FOOT_LINK}
+          >
+            Open source
+          </a>{" "}
+          and secure by design. Built by{" "}
+          <a href="https://enricoschintu.com" target="_blank" rel="noopener noreferrer" className={FOOT_LINK}>
+            Enrico Schintu
+          </a>
+          .
         </p>
       </form>
     </main>
@@ -200,7 +337,7 @@ function LinkReady({ link, onReset }: { link: CreatedLink; onReset: () => void }
   const burned = burn === "burned";
   const summary = [
     { label: "Views", value: viewsLabel(link.views) },
-    { label: "Expires", value: expirySummary(link.expiry) },
+    { label: "Expires", value: `in ${link.expiryLabel}` },
     { label: "Content", value: link.kind === "text" ? "Text" : "File" },
   ];
 
