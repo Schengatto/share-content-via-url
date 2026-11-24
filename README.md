@@ -64,7 +64,7 @@ Stack: Next.js 16 (App Router, React 19), TypeScript, SQLite (better-sqlite3), e
 - **A link page reveals whether a share is password protected or locked.** This is needed to show the right form or the countdown before any view is used.
 - **Single-node design.** The rate limiter lives in memory and the data is in a local SQLite file. Running several instances weakens the rate limit and needs shared storage.
 - **Rate limits and the per-IP lock trust the proxy.** They key on the first `X-Forwarded-For` address, so the reverse proxy must overwrite that header with the real client address.
-- **Deletion depends on the storage.** Overwriting with zeros does not guarantee erasure on SSDs, copy-on-write filesystems or backups. Backups keep ciphertext of shares that have since expired or been burned. They hold no keys, but whoever has both an old link and a backup can decrypt that share (for text with a password, they must also guess the password offline). The production retention below bounds this window to 7 days.
+- **Deletion depends on the storage.** Overwriting with zeros does not guarantee erasure on SSDs, copy-on-write filesystems or backups. Backups keep ciphertext of shares that have since expired or been burned. They hold no keys, but whoever has both an old link and a backup can decrypt that share (for text with a password, and for files with a password created from schema v6 on, they must also guess the password offline). The production retention below bounds this window to 7 days.
 
 ## Reporting a vulnerability
 

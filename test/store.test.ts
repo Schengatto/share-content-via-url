@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_V1_PAYLOAD_FORMAT, LEGACY_PAYLOAD_FORMAT, SEALED_PAYLOAD_FORMAT } from "../lib/db";
-import { decrypt, deriveKey, encrypt, generateToken, hashToken } from "../lib/crypto";
+import { decrypt, deriveKey, derivePasswordBoundKey, encrypt, generateToken, hashToken } from "../lib/crypto";
 import { hashPassword } from "../lib/password";
 import {
   assertValidE2eInput,
@@ -381,14 +381,23 @@ describe("password protected shares", () => {
 
   it("binds the encryption key to the password so the database and token alone cannot decrypt", async () => {
     const { token } = await createShare(db, blobs, textInput({ password: PASSWORD }));
-    const row = db.prepare("SELECT blob_path, iv, auth_tag, password_key_salt FROM shares").get() as {
+    const row = db.prepare("SELECT blob_path, iv, auth_tag, password_hash, password_key_salt FROM shares").get() as {
       blob_path: string;
       iv: Buffer;
       auth_tag: Buffer;
+      password_hash: string;
       password_key_salt: Buffer;
     };
+    const blob = blobs.get(row.blob_path);
+    const hashSalt = Buffer.from(row.password_hash.split("$")[4], "base64");
     expect(row.password_key_salt.length).toBe(16);
-    expect(() => decrypt(blobs.get(row.blob_path), deriveKey(token), row.iv, row.auth_tag)).toThrow();
+    expect(row.password_key_salt.equals(hashSalt)).toBe(false);
+    expect(() => decrypt(blob, deriveKey(token), row.iv, row.auth_tag)).toThrow();
+    expect(() =>
+      decrypt(blob, derivePasswordBoundKey(token, "wrong-pass", row.password_key_salt), row.iv, row.auth_tag),
+    ).toThrow();
+    const boundKey = derivePasswordBoundKey(token, PASSWORD, row.password_key_salt);
+    expect(decrypt(blob, boundKey, row.iv, row.auth_tag).length).toBeGreaterThan(0);
     const opened = await openShare(token, PASSWORD);
     expect(opened.content.toString()).toBe("top secret");
   });

@@ -163,6 +163,15 @@ describe("e2e-crypto", () => {
     expect(() => openPayloadBytes(payload)).toThrow();
   });
 
+  it("rejects a negative header length", () => {
+    const header = new TextEncoder().encode(JSON.stringify({ filename: null, mime: "text/plain", length: -1 }));
+    const payload = new Uint8Array(4 + header.length + 10);
+    new DataView(payload.buffer).setUint32(0, header.length);
+    payload.set(header, 4);
+
+    expect(() => openPayloadBytes(payload)).toThrow();
+  });
+
   it("pads sealed payloads to the bucket length", () => {
     const small = sealPayloadBytes(TEXT_METADATA, new Uint8Array(3));
     const larger = sealPayloadBytes(TEXT_METADATA, new Uint8Array(300));

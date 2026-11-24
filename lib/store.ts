@@ -226,11 +226,12 @@ export async function createShare(
 
   const token = generateToken();
   const revokeToken = generateToken();
-  const passwordKeySalt = input.password === undefined ? null : randomBytes(PASSWORD_KEY_SALT_BYTES);
-  const key =
-    input.password === undefined || passwordKeySalt === null
-      ? deriveKey(token)
-      : derivePasswordBoundKey(token, input.password, passwordKeySalt);
+  let passwordKeySalt: Buffer | null = null;
+  let key = deriveKey(token);
+  if (input.password !== undefined) {
+    passwordKeySalt = randomBytes(PASSWORD_KEY_SALT_BYTES);
+    key = derivePasswordBoundKey(token, input.password, passwordKeySalt);
+  }
   const payload = sealPayload({ filename: input.filename ?? null, mime: input.mime }, input.content);
   const { ciphertext, iv, authTag } = encrypt(payload, key);
 
