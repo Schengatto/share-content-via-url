@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { openDb, type DB } from "../lib/db";
 import type { BlobStore } from "../lib/blob-store";
 import { tokenFromShareUrl } from "../lib/share-options";
+import { E2E_FORMAT, encryptText } from "../lib/e2e-crypto";
 
 const wiring = vi.hoisted(() => ({ db: undefined as DB | undefined, blobs: undefined as BlobStore | undefined }));
 
@@ -29,9 +30,15 @@ function memBlobs(): BlobStore {
 let requestCount = 0;
 
 async function createViaApi() {
+  const upload = await encryptText("lantern-orbit");
   const form = new FormData();
   form.set("kind", "text");
-  form.set("text", "lantern-orbit");
+  form.set("encryption", E2E_FORMAT);
+  form.set("ciphertext", new Blob([upload.ciphertext]));
+  form.set("iv", upload.iv);
+  form.set("salt", upload.salt);
+  form.set("kdfIterations", String(upload.kdfIterations));
+  form.set("linkProofHash", upload.linkProofHash);
   requestCount += 1;
   const response = await POST(
     new NextRequest("http://localhost:3000/api/share", {
