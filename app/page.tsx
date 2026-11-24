@@ -31,7 +31,7 @@ type ScaleMark = { label: string; at: number };
 
 const PAGE = "mx-auto w-full max-w-[640px] px-5 pb-4 pt-4";
 const HEADLINE = "mb-3.5 text-[clamp(28px,3.6vw,36px)] [@media(max-height:740px)]:text-[28px] font-semibold leading-[1.06] tracking-[-0.03em]";
-const LEAD = "mb-4 max-w-[46ch] text-dim";
+const LEAD = "mb-4 max-w-[46ch] text-dim max-sm:hidden [@media(max-height:740px)]:hidden";
 const OPTION = "px-4 py-3 sm:px-[18px]";
 const OPTION_HEAD = "mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1";
 const FOOT = "text-[13px] text-dim";
@@ -278,7 +278,8 @@ export default function CreatePage() {
             className="rounded-b-[14px] border-t border-edge bg-night px-4 py-2.5 text-[13.5px] text-dim sm:px-[18px]"
           >
             Burns after <b className="font-medium text-ink">{viewsLabel(views)}</b> or in{" "}
-            <b className="font-medium text-ink">{ttlStop.label}</b>, whichever comes first.
+            <b className="font-medium text-ink">{ttlStop.label}</b>
+            <span className="max-sm:hidden">, whichever comes first</span>.
             {password !== "" && " Password protected."}
           </p>
         </div>
@@ -295,8 +296,8 @@ export default function CreatePage() {
             {error}
           </p>
         )}
-        <p className={`mt-3 ${FOOT}`}>Sent over HTTPS and encrypted before it touches the disk.</p>
-        <p className={`mt-1 ${FOOT}`}>
+        <p className={`mt-3 max-sm:hidden ${FOOT}`}>Sent over HTTPS and encrypted before it touches the disk.</p>
+        <p className={`mt-3 sm:mt-1 ${FOOT}`}>
           <a
             href="https://github.com/Schengatto/share-content-via-url"
             target="_blank"
