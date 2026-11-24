@@ -78,6 +78,12 @@ npm start         # server di produzione
 - **Backup/restore** richiede sia `share.db` sia `data/blobs/` coerenti.
   Senza i token (mai salvati) i blob **non sono decifrabili**: il backup serve
   solo a non perdere i dati cifrati, non a leggerli.
+- **Schema v6** (`password_key_salt`): il database si migra da solo all'avvio e una
+  versione più vecchia dell'app rifiuta di aprire un database v6. Il rollback
+  richiede codice **e** dati insieme: ripristina il backup di `share.db` e
+  `data/blobs/` fatto prima dell'aggiornamento insieme alla versione precedente del
+  codice. I file con password creati dopo l'aggiornamento non sono leggibili dal
+  codice precedente, perché la loro chiave dipende anche dalla password.
 
 ### Cleanup
 - Automatico: **lazy** (a ogni accesso che trova un record scaduto) e

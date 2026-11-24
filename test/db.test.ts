@@ -63,8 +63,9 @@ describe("db", () => {
       "e2e_kdf_iterations",
       "link_proof_hash",
       "auth_hash",
+      "password_key_salt",
     ]);
-    expect(db.pragma("user_version", { simple: true })).toBe(5);
+    expect(db.pragma("user_version", { simple: true })).toBe(6);
   });
 
   it("indexes token_hash for lookup", () => {
@@ -102,7 +103,7 @@ describe("db", () => {
     legacy.close();
 
     const db = openDb(path);
-    expect(db.pragma("user_version", { simple: true })).toBe(5);
+    expect(db.pragma("user_version", { simple: true })).toBe(6);
     expect(
       db
         .prepare(
@@ -122,11 +123,11 @@ describe("db", () => {
     });
     db.close();
     const reopened = openDb(path);
-    expect(reopened.pragma("user_version", { simple: true })).toBe(5);
+    expect(reopened.pragma("user_version", { simple: true })).toBe(6);
     reopened.close();
   });
 
-  it("migrates a version 4 database to version 5 keeping its shares", () => {
+  it("migrates a version 4 database to the current version keeping its shares", () => {
     tempDir = mkdtempSync(join(tmpdir(), "share-db-"));
     const path = join(tempDir, "share.db");
     const versionFour = new Database(path);
@@ -142,11 +143,11 @@ describe("db", () => {
     versionFour.close();
 
     const db = openDb(path);
-    expect(db.pragma("user_version", { simple: true })).toBe(5);
+    expect(db.pragma("user_version", { simple: true })).toBe(6);
     expect(
       db
         .prepare(
-          "SELECT payload_format, access_count, password_hash, e2e_salt, e2e_kdf_iterations, link_proof_hash, auth_hash FROM shares WHERE id = 'share-4'",
+          "SELECT payload_format, access_count, password_hash, e2e_salt, e2e_kdf_iterations, link_proof_hash, auth_hash, password_key_salt FROM shares WHERE id = 'share-4'",
         )
         .get(),
     ).toEqual({
@@ -157,6 +158,7 @@ describe("db", () => {
       e2e_kdf_iterations: null,
       link_proof_hash: null,
       auth_hash: null,
+      password_key_salt: null,
     });
     db.close();
   });
@@ -165,8 +167,8 @@ describe("db", () => {
     tempDir = mkdtempSync(join(tmpdir(), "share-db-"));
     const path = join(tempDir, "share.db");
     const newer = new Database(path);
-    newer.pragma("user_version = 6");
+    newer.pragma("user_version = 7");
     newer.close();
-    expect(() => openDb(path)).toThrow("Database schema version 6 is newer than this app supports (5)");
+    expect(() => openDb(path)).toThrow("Database schema version 7 is newer than this app supports (6)");
   });
 });

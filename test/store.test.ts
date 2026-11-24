@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_V1_PAYLOAD_FORMAT, LEGACY_PAYLOAD_FORMAT, SEALED_PAYLOAD_FORMAT } from "../lib/db";
-import { deriveKey, encrypt, generateToken, hashToken } from "../lib/crypto";
+import { decrypt, deriveKey, encrypt, generateToken, hashToken } from "../lib/crypto";
+import { hashPassword } from "../lib/password";
 import {
   assertValidE2eInput,
   consumeE2eShare,
@@ -376,6 +377,33 @@ describe("password protected shares", () => {
     const { password_hash } = db.prepare("SELECT password_hash FROM shares").get() as { password_hash: string };
     expect(password_hash.startsWith("scrypt$")).toBe(true);
     expect(password_hash.includes(PASSWORD)).toBe(false);
+  });
+
+  it("binds the encryption key to the password so the database and token alone cannot decrypt", async () => {
+    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD }));
+    const row = db.prepare("SELECT blob_path, iv, auth_tag, password_key_salt FROM shares").get() as {
+      blob_path: string;
+      iv: Buffer;
+      auth_tag: Buffer;
+      password_key_salt: Buffer;
+    };
+    expect(row.password_key_salt.length).toBe(16);
+    expect(() => decrypt(blobs.get(row.blob_path), deriveKey(token), row.iv, row.auth_tag)).toThrow();
+    const opened = await openShare(token, PASSWORD);
+    expect(opened.content.toString()).toBe("top secret");
+  });
+
+  it("leaves the key salt empty for a share without a password", async () => {
+    const { token } = await createShare(db, blobs, textInput());
+    const row = db.prepare("SELECT password_key_salt FROM shares").get() as { password_key_salt: Buffer | null };
+    expect(row.password_key_salt).toBeNull();
+    expect((await openShare(token)).content.toString()).toBe("top secret");
+  });
+
+  it("opens a share whose password was added without a key salt, as created before the key binding", async () => {
+    const { token } = await createShare(db, blobs, textInput());
+    db.prepare("UPDATE shares SET password_hash = ?").run(hashPassword(PASSWORD));
+    expect((await openShare(token, PASSWORD)).content.toString()).toBe("top secret");
   });
 
   it("reports the share as password protected on the side-effect free status read", async () => {

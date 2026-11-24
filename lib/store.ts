@@ -7,7 +7,16 @@ import {
   type DB,
 } from "./db";
 import type { BlobStore } from "./blob-store";
-import { generateToken, hashToken, hashesMatch, deriveKey, encrypt, decrypt } from "./crypto";
+import {
+  generateToken,
+  hashToken,
+  hashesMatch,
+  deriveKey,
+  derivePasswordBoundKey,
+  encrypt,
+  decrypt,
+  PASSWORD_KEY_SALT_BYTES,
+} from "./crypto";
 import { E2E_IV_BYTES, E2E_KDF_ITERATIONS, E2E_MIN_CIPHERTEXT_BYTES, E2E_SALT_BYTES } from "./e2e-crypto";
 import { MAX_SIZE } from "./file-support";
 import { openPayload, sealPayload } from "./sealed-payload";
@@ -117,6 +126,7 @@ interface ShareRow {
   e2e_kdf_iterations: number | null;
   link_proof_hash: string | null;
   auth_hash: string | null;
+  password_key_salt: Buffer | null;
 }
 
 type ShareFormat = { format: "legacy" } | { format: "e2e-v1"; salt: string; kdfIterations: number };
@@ -216,7 +226,11 @@ export async function createShare(
 
   const token = generateToken();
   const revokeToken = generateToken();
-  const key = deriveKey(token);
+  const passwordKeySalt = input.password === undefined ? null : randomBytes(PASSWORD_KEY_SALT_BYTES);
+  const key =
+    input.password === undefined || passwordKeySalt === null
+      ? deriveKey(token)
+      : derivePasswordBoundKey(token, input.password, passwordKeySalt);
   const payload = sealPayload({ filename: input.filename ?? null, mime: input.mime }, input.content);
   const { ciphertext, iv, authTag } = encrypt(payload, key);
 
@@ -227,8 +241,8 @@ export async function createShare(
     db.prepare(
       `INSERT INTO shares
         (id, token_hash, kind, payload_format, blob_path, iv, auth_tag,
-         expires_at, max_accesses, access_count, created_at, password_hash, revoke_token_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+         expires_at, max_accesses, access_count, created_at, password_hash, revoke_token_hash, password_key_salt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
     ).run(
       id,
       hashToken(token),
@@ -242,6 +256,7 @@ export async function createShare(
       createdAt,
       passwordHash,
       hashToken(revokeToken),
+      passwordKeySalt,
     );
     blobs.put(blobPath, ciphertext);
   })();
@@ -432,7 +447,9 @@ export async function consumeShare(
 
   const accessCount = claimView(db, blobs, row, now);
 
-  const key = deriveKey(token);
+  const key = row.password_key_salt
+    ? derivePasswordBoundKey(token, password, row.password_key_salt)
+    : deriveKey(token);
   const plaintext = decrypt(blobs.get(row.blob_path), key, row.iv, row.auth_tag);
 
   purgeAfterLastView(db, blobs, row, accessCount);

@@ -51,6 +51,10 @@ export function hashPassword(password: string): string {
   return [ALGORITHM, COST, BLOCK_SIZE, PARALLELIZATION, salt.toString("base64"), hash.toString("base64")].join("$");
 }
 
+export function derivePasswordSecret(password: string, salt: Buffer): Buffer {
+  return derive(password, salt, { cost: COST, blockSize: BLOCK_SIZE, parallelization: PARALLELIZATION }, HASH_BYTES);
+}
+
 export function verifyPassword(password: string, storedHash: string): boolean {
   const parts = storedHash.split("$");
   if (parts.length !== 6 || parts[0] !== ALGORITHM) return false;
