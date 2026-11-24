@@ -9,12 +9,14 @@ const STATUS_DOT = {
 export function BrandHeader({
   status,
   tone = "live",
+  className = "mb-8 sm:mb-10",
 }: {
   status: string;
   tone?: keyof typeof STATUS_DOT;
+  className?: string;
 }) {
   return (
-    <header className="mb-8 flex sm:mb-10 items-baseline justify-between">
+    <header className={`flex items-baseline justify-between ${className}`}>
       <Link href="/" className="font-mono text-[13px] font-medium tracking-wide text-ink">
         share<span className="text-amber">/</span>secret
       </Link>

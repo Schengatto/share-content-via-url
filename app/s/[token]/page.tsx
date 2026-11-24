@@ -26,6 +26,18 @@ export const metadata: Metadata = {
   },
 };
 
+function readGateState(token: string) {
+  const status = shareStatus(appDb(), token);
+  if (!status.available) {
+    return { unavailableStatus: status.status, passwordProtected: false, initialLockRemainingMs: 0 };
+  }
+  return {
+    unavailableStatus: null,
+    passwordProtected: status.passwordProtected,
+    initialLockRemainingMs: status.lockedUntil === null ? 0 : status.lockedUntil - Date.now(),
+  };
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   return <main className="mx-auto w-full max-w-[560px] px-5 py-10 sm:py-16">{children}</main>;
 }
@@ -42,10 +54,9 @@ export default async function AccessPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const status = shareStatus(appDb(), token);
   return (
     <Shell>
-      <RevealGate token={token} unavailableStatus={status.available ? null : status.status} />
+      <RevealGate token={token} {...readGateState(token)} />
     </Shell>
   );
 }

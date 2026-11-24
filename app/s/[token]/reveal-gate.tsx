@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandHeader } from "../../brand-header";
-import { COMPACT_PRIMARY_BUTTON, GHOST_BUTTON, PRIMARY_BUTTON } from "../../buttons";
+import { COMPACT_PRIMARY_BUTTON, GHOST_BUTTON, LOCKED_BUTTON, PRIMARY_BUTTON } from "../../buttons";
+import { FIELD_LABEL, TEXT_INPUT } from "../../fields";
+import { LOCK_DURATION_LABEL, formatCountdown } from "@/lib/share-options";
 import { FileDownload } from "./file-download";
 import { revealShare, type RevealResult } from "./actions";
 
@@ -44,43 +46,158 @@ function Envelope({
   );
 }
 
+const LOCK_TICK_MS = 1000;
+
+function sealedCopy(locked: boolean, passwordProtected: boolean) {
+  if (locked) {
+    return {
+      title: `Locked for ${LOCK_DURATION_LABEL}.`,
+      intro: "Too many guesses are how secrets leak, so this one waits.",
+    };
+  }
+  if (passwordProtected) {
+    return {
+      title: "Password required.",
+      intro: "The sender protected this secret. Enter the password to open it. Opening it may use the last view.",
+    };
+  }
+  return {
+    title: "A sealed message is waiting",
+    intro: "Breaking the seal may use the last view. After that, the content is deleted for good, so be ready to save it.",
+  };
+}
+
 export function RevealGate({
   token,
   unavailableStatus,
+  passwordProtected,
+  initialLockRemainingMs,
 }: {
   token: string;
   unavailableStatus: 404 | 410 | null;
+  passwordProtected: boolean;
+  initialLockRemainingMs: number;
 }) {
   const [phase, setPhase] = useState<"idle" | "loading" | "done">(unavailableStatus === null ? "idle" : "done");
   const [result, setResult] = useState<RevealResult | null>(
     unavailableStatus === null ? null : { ok: false, status: unavailableStatus },
   );
+  const [password, setPassword] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [lockMs, setLockMs] = useState(Math.max(0, initialLockRemainingMs));
+  const [lockRemainingMs, setLockRemainingMs] = useState(Math.max(0, initialLockRemainingMs));
+  const locked = lockMs > 0;
+
+  useEffect(() => {
+    if (lockMs <= 0) return;
+    const deadline = Date.now() + lockMs;
+    const timer = setInterval(() => {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs > 0) {
+        setLockRemainingMs(remainingMs);
+        return;
+      }
+      clearInterval(timer);
+      setLockMs(0);
+      setLockRemainingMs(0);
+      setNotice("The lock ended. You can try again.");
+    }, LOCK_TICK_MS);
+    return () => clearInterval(timer);
+  }, [lockMs]);
 
   async function reveal() {
+    if (passwordProtected && password === "") {
+      setNotice("Enter the password.");
+      return;
+    }
     setPhase("loading");
-    setResult(await revealShare(token));
+    setNotice(null);
+    const next = await revealShare(token, password);
+    if (!next.ok && (next.status === "wrong-password" || next.status === "locked")) {
+      setPassword("");
+      setLockMs(next.retryAfterMs);
+      setLockRemainingMs(next.retryAfterMs);
+      setPhase("idle");
+      return;
+    }
+    if (!next.ok && next.status === "password-required") {
+      setNotice("Enter the password.");
+      setPhase("idle");
+      return;
+    }
+    setResult(next);
     setPhase("done");
   }
 
   if (phase !== "done") {
+    const copy = sealedCopy(locked, passwordProtected);
     return (
       <>
-        <BrandHeader status="sealed" />
+        <BrandHeader status={locked ? "locked" : "sealed"} tone={locked ? "burned" : "live"} />
         <Envelope
-          title="A sealed message is waiting"
+          title={copy.title}
           seal={
             <div className="wax-seal relative mx-auto mb-[26px] grid h-16 w-16 place-items-center rounded-full text-amber-ink">
               <LockIcon />
             </div>
           }
         >
-          <p className="mx-auto mb-7 max-w-[40ch] text-dim">
-            Breaking the seal may use the last view. After that, the content is
-            deleted for good, so be ready to save it.
-          </p>
-          <button type="button" onClick={reveal} disabled={phase === "loading"} className={`${PRIMARY_BUTTON} w-full sm:w-auto`}>
-            {phase === "loading" ? "Breaking the seal…" : "Break the seal"}
-          </button>
+          <p className="mx-auto mb-7 max-w-[40ch] text-dim">{copy.intro}</p>
+          {locked && (
+            <div className="mb-7">
+              <div
+                role="timer"
+                className="font-mono text-[44px] font-medium leading-none tracking-[-0.03em] tabular-nums text-ember"
+              >
+                {formatCountdown(lockRemainingMs)}
+              </div>
+              <p className="mx-auto mt-3.5 max-w-[44ch] text-dim">
+                Wrong password. The secret opens again when the timer ends. This attempt did not use a view.
+              </p>
+            </div>
+          )}
+          {passwordProtected ? (
+            <form
+              noValidate
+              onSubmit={(e) => {
+                e.preventDefault();
+                reveal();
+              }}
+              className="mx-auto max-w-[360px] text-left"
+            >
+              <label htmlFor="unlock-password" className={`mb-2 block ${FIELD_LABEL}`}>
+                Password
+              </label>
+              <input
+                id="unlock-password"
+                type="password"
+                autoComplete="off"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setNotice(null);
+                }}
+                disabled={locked || phase === "loading"}
+                className={`w-full ${TEXT_INPUT}`}
+              />
+              {notice && (
+                <p role="alert" className="mt-2.5 text-[13px] text-ember">
+                  {notice}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={locked || phase === "loading"}
+                className={`${locked ? LOCKED_BUTTON : PRIMARY_BUTTON} mt-4 w-full`}
+              >
+                {locked ? "Locked" : phase === "loading" ? "Unlocking…" : "Unlock secret"}
+              </button>
+            </form>
+          ) : (
+            <button type="button" onClick={reveal} disabled={phase === "loading"} className={`${PRIMARY_BUTTON} w-full sm:w-auto`}>
+              {phase === "loading" ? "Breaking the seal…" : "Break the seal"}
+            </button>
+          )}
         </Envelope>
       </>
     );

@@ -51,6 +51,8 @@ const MIGRATIONS = [
    DROP TABLE shares;
    ALTER TABLE shares_sealed RENAME TO shares;
    CREATE UNIQUE INDEX idx_shares_token_hash ON shares (token_hash);`,
+  `ALTER TABLE shares ADD COLUMN password_hash TEXT;
+   ALTER TABLE shares ADD COLUMN locked_until INTEGER;`,
 ];
 
 function migrate(db: DB): void {

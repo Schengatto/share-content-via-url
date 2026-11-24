@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appDb, appBlobs, ensureStarted, shareUrl } from "@/lib/app";
-import { createShare } from "@/lib/store";
+import { assertValidShareOptions, createShare } from "@/lib/store";
+import { DEFAULT_TTL_SECONDS, DEFAULT_VIEWS } from "@/lib/share-options";
 import { validateContent, MAX_SIZE } from "@/lib/content-safety";
 import { shareCreationLimiter } from "@/lib/rate-limit";
 
@@ -12,10 +13,13 @@ const MAX_UPLOAD = MAX_SIZE + 1024 * 1024;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function parseOptInt(v: FormDataEntryValue | null): number | null {
-  if (typeof v !== "string" || v.trim() === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
+function numberField(value: FormDataEntryValue | null, fallback: number): number {
+  if (typeof value !== "string" || value.trim() === "") return fallback;
+  return Number(value);
+}
+
+function optionalPasswordField(value: FormDataEntryValue | null): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 export async function POST(req: NextRequest) {
@@ -65,31 +69,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
   }
 
-  // Accesses default to 1 (single-use); expiry is an optional extra rule.
-  const maxAccesses = parseOptInt(form.get("maxAccesses")) ?? 1;
-  if (![1, 2, 3].includes(maxAccesses)) {
-    return NextResponse.json(
-      { error: "maxAccesses must be 1, 2 or 3" },
-      { status: 400 },
-    );
-  }
-  const expiresAt = parseOptInt(form.get("expiresAt"));
-  if (expiresAt !== null && expiresAt <= Date.now()) {
-    return NextResponse.json(
-      { error: "Expiry must be in the future" },
-      { status: 400 },
-    );
-  }
+  const options = {
+    maxAccesses: numberField(form.get("maxAccesses"), DEFAULT_VIEWS),
+    ttlSeconds: numberField(form.get("ttlSeconds"), DEFAULT_TTL_SECONDS),
+    password: optionalPasswordField(form.get("password")),
+  };
 
   try {
+    assertValidShareOptions(options);
     await validateContent({ kind, buffer, declaredMime: mime, filename });
     const { token } = await createShare(appDb(), appBlobs(), {
       kind,
       content: buffer,
       mime,
       filename,
-      expiresAt,
-      maxAccesses,
+      ...options,
     });
     return NextResponse.json({ url: shareUrl(req.nextUrl.origin, token) });
   } catch (e) {

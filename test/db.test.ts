@@ -42,6 +42,8 @@ describe("db", () => {
       "max_accesses",
       "access_count",
       "created_at",
+      "password_hash",
+      "locked_until",
     ]);
   });
 
@@ -80,13 +82,24 @@ describe("db", () => {
     legacy.close();
 
     const db = openDb(path);
-    expect(db.pragma("user_version", { simple: true })).toBe(1);
+    expect(db.pragma("user_version", { simple: true })).toBe(2);
     expect(
-      db.prepare("SELECT payload_format, filename, mime, access_count FROM shares WHERE id = 'share-1'").get(),
-    ).toEqual({ payload_format: LEGACY_PAYLOAD_FORMAT, filename: "a.pdf", mime: "application/pdf", access_count: 0 });
+      db
+        .prepare(
+          "SELECT payload_format, filename, mime, access_count, password_hash, locked_until FROM shares WHERE id = 'share-1'",
+        )
+        .get(),
+    ).toEqual({
+      payload_format: LEGACY_PAYLOAD_FORMAT,
+      filename: "a.pdf",
+      mime: "application/pdf",
+      access_count: 0,
+      password_hash: null,
+      locked_until: null,
+    });
     db.close();
     const reopened = openDb(path);
-    expect(reopened.pragma("user_version", { simple: true })).toBe(1);
+    expect(reopened.pragma("user_version", { simple: true })).toBe(2);
     reopened.close();
   });
 });
