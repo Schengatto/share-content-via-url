@@ -274,10 +274,13 @@ Scansione **all'upload, sul contenuto in chiaro, prima della cifratura** (dopo n
 - **Testo:** mai HTML, sempre escaped. Header `Content-Security-Policy`
   (con `frame-ancestors 'none'` anti-clickjacking), `Referrer-Policy: no-referrer`
   (il token sta nell'URL, non deve trapelare via `Referer`) e
-  `X-Content-Type-Options: nosniff` (in `next.config.mjs`). La CSP include
-  `script-src 'self' 'unsafe-inline'` (necessario agli script inline di Next;
-  `'unsafe-eval'` solo in dev per l'HMR) — l'XSS sul testo è già neutralizzato
-  dall'escaping di React, la CSP resta difesa in profondità.
+  `X-Content-Type-Options: nosniff` (in `next.config.mjs`). La CSP è generata per
+  richiesta in `proxy.ts` (`lib/content-security-policy.ts`) con un nonce:
+  `script-src 'self' 'nonce-…' 'strict-dynamic'`, senza `'unsafe-inline'`
+  (`'unsafe-eval'` solo in dev per l'HMR). Gli script inline iniettati non
+  partono, quindi un'XSS non può leggere `location.hash` (la chiave E2E). Le
+  pagine sono renderizzate dinamicamente (`connection()` nel layout) perché il
+  nonce cambia a ogni richiesta; l'escaping di React resta la prima difesa.
 
 **Codici errore:** `400` input · `404` token assente · `410` scaduto/esaurito ·
 `413` troppo grande · `415` tipo non consentito · `422` infetto · `429` rate-limit.

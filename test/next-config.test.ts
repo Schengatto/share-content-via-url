@@ -21,7 +21,7 @@ describe("next.config headers", () => {
     const globalHeaders = await headersFor("/:path*");
     expect(globalHeaders["Referrer-Policy"]).toBe("no-referrer");
     expect(globalHeaders["X-Content-Type-Options"]).toBe("nosniff");
-    expect(globalHeaders["Content-Security-Policy"]).toContain("default-src 'self'");
+    expect(globalHeaders["Content-Security-Policy"]).toBeUndefined();
   });
 
   it("does not disable caching for the static assets", async () => {
