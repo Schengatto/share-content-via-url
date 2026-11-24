@@ -15,6 +15,18 @@ CREATE TABLE shares (
 CREATE UNIQUE INDEX idx_shares_token_hash ON shares (token_hash);
 `;
 
+const VERSION_FOUR_SCHEMA = `
+CREATE TABLE shares (
+  id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, kind TEXT NOT NULL,
+  payload_format INTEGER NOT NULL DEFAULT 2, filename TEXT, mime TEXT, blob_path TEXT NOT NULL,
+  iv BLOB NOT NULL, auth_tag BLOB NOT NULL, expires_at INTEGER, max_accesses INTEGER,
+  access_count INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, password_hash TEXT,
+  locked_until INTEGER, revoke_token_hash TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0,
+  lockouts INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX idx_shares_token_hash ON shares (token_hash);
+`;
+
 let tempDir: string | null = null;
 
 afterEach(() => {
@@ -47,7 +59,12 @@ describe("db", () => {
       "revoke_token_hash",
       "failed_attempts",
       "lockouts",
+      "e2e_salt",
+      "e2e_kdf_iterations",
+      "link_proof_hash",
+      "auth_hash",
     ]);
+    expect(db.pragma("user_version", { simple: true })).toBe(5);
   });
 
   it("indexes token_hash for lookup", () => {
@@ -85,7 +102,7 @@ describe("db", () => {
     legacy.close();
 
     const db = openDb(path);
-    expect(db.pragma("user_version", { simple: true })).toBe(4);
+    expect(db.pragma("user_version", { simple: true })).toBe(5);
     expect(
       db
         .prepare(
@@ -105,16 +122,51 @@ describe("db", () => {
     });
     db.close();
     const reopened = openDb(path);
-    expect(reopened.pragma("user_version", { simple: true })).toBe(4);
+    expect(reopened.pragma("user_version", { simple: true })).toBe(5);
     reopened.close();
+  });
+
+  it("migrates a version 4 database to version 5 keeping its shares", () => {
+    tempDir = mkdtempSync(join(tmpdir(), "share-db-"));
+    const path = join(tempDir, "share.db");
+    const versionFour = new Database(path);
+    versionFour.exec(VERSION_FOUR_SCHEMA);
+    versionFour
+      .prepare(
+        `INSERT INTO shares (id, token_hash, kind, payload_format, mime, blob_path, iv, auth_tag,
+           expires_at, max_accesses, access_count, created_at, password_hash)
+         VALUES ('share-4', 'hash-4', 'text', 2, NULL, 'share-4', x'00', x'00', NULL, 3, 1, 1, 'scrypt$x')`,
+      )
+      .run();
+    versionFour.pragma("user_version = 4");
+    versionFour.close();
+
+    const db = openDb(path);
+    expect(db.pragma("user_version", { simple: true })).toBe(5);
+    expect(
+      db
+        .prepare(
+          "SELECT payload_format, access_count, password_hash, e2e_salt, e2e_kdf_iterations, link_proof_hash, auth_hash FROM shares WHERE id = 'share-4'",
+        )
+        .get(),
+    ).toEqual({
+      payload_format: 2,
+      access_count: 1,
+      password_hash: "scrypt$x",
+      e2e_salt: null,
+      e2e_kdf_iterations: null,
+      link_proof_hash: null,
+      auth_hash: null,
+    });
+    db.close();
   });
 
   it("refuses to open a database migrated by a newer version of the app", () => {
     tempDir = mkdtempSync(join(tmpdir(), "share-db-"));
     const path = join(tempDir, "share.db");
     const newer = new Database(path);
-    newer.pragma("user_version = 5");
+    newer.pragma("user_version = 6");
     newer.close();
-    expect(() => openDb(path)).toThrow("Database schema version 5 is newer than this app supports (4)");
+    expect(() => openDb(path)).toThrow("Database schema version 6 is newer than this app supports (5)");
   });
 });

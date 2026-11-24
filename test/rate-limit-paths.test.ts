@@ -27,7 +27,7 @@ vi.mock("../lib/app", () => ({
   shareUrl: (origin: string, token: string) => `${origin}/s/${token}`,
 }));
 
-const { revealShare } = await import("../app/s/[token]/actions");
+const { revealShare, revealE2eShare } = await import("../app/s/[token]/actions");
 const { DELETE } = await import("../app/api/share/[token]/route");
 
 function memBlobs(): BlobStore {
@@ -163,3 +163,29 @@ describe("DELETE rate limit", () => {
     expect(await unknown.json()).toEqual(await known.json());
   });
 });
+
+describe("end-to-end reveal rate limit", () => {
+  const UNKNOWN_LINK_ID = "L".repeat(22);
+  const PROOF = "A".repeat(43);
+
+  it("refuses reveals past the per-IP limit before any lookup", async () => {
+    wiring.ip = "10.9.8.1";
+    for (let attempt = 0; attempt < REVEAL_LIMIT_PER_MINUTE; attempt++) {
+      expect(await revealE2eShare(UNKNOWN_LINK_ID, PROOF)).toEqual({ ok: false, status: 404 });
+    }
+    expect(await revealE2eShare(UNKNOWN_LINK_ID, PROOF)).toMatchObject({ ok: false, status: "rate-limited" });
+
+    wiring.ip = "10.9.8.2";
+    expect(await revealE2eShare(UNKNOWN_LINK_ID, PROOF)).toEqual({ ok: false, status: 404 });
+  });
+
+  it("refuses auth key attempts past the per-IP limit, while reveals without an auth key stay allowed", async () => {
+    wiring.ip = "10.9.8.3";
+    for (let attempt = 0; attempt < PASSWORD_ATTEMPT_LIMIT_PER_MINUTE; attempt++) {
+      expect(await revealE2eShare(UNKNOWN_LINK_ID, PROOF, PROOF)).toEqual({ ok: false, status: 404 });
+    }
+    expect(await revealE2eShare(UNKNOWN_LINK_ID, PROOF, PROOF)).toMatchObject({ ok: false, status: "rate-limited" });
+    expect(await revealE2eShare(UNKNOWN_LINK_ID, PROOF)).toEqual({ ok: false, status: 404 });
+  });
+});
+

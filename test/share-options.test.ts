@@ -111,6 +111,16 @@ describe("tokenFromShareUrl", () => {
     ).toBe("8eXy-OQK_NDJ");
   });
 
+  it("ignores the fragment", () => {
+    expect(tokenFromShareUrl(`https://h/s/abc_-1#${"K".repeat(43)}`)).toBe("abc_-1");
+    expect(tokenFromShareUrl("https://h/s/abc/#x")).toBe("abc");
+    expect(tokenFromShareUrl("https://h/s/abc")).toBe("abc");
+  });
+
+  it("returns null for a path that is not a share route even with a fragment", () => {
+    expect(tokenFromShareUrl("https://h/x/abc#k")).toBeNull();
+  });
+
   it("returns null for a URL that is not a share link", () => {
     expect(tokenFromShareUrl("https://share-secret.schengatto.com/")).toBeNull();
     expect(tokenFromShareUrl("https://example.com/s/a.b")).toBeNull();

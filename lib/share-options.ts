@@ -70,6 +70,6 @@ export function formatCountdown(remainingMs: number): string {
 }
 
 export function tokenFromShareUrl(url: string): string | null {
-  const match = /\/s\/([A-Za-z0-9_-]+)\/?$/.exec(url);
+  const match = /\/s\/([A-Za-z0-9_-]+)\/?(?:#.*)?$/.exec(url);
   return match ? match[1] : null;
 }

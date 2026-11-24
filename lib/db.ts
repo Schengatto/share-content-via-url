@@ -25,6 +25,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_shares_token_hash ON shares (token_hash);
 
 export const LEGACY_PAYLOAD_FORMAT = 1;
 export const SEALED_PAYLOAD_FORMAT = 2;
+export const E2E_V1_PAYLOAD_FORMAT = 3;
 
 const MIGRATIONS = [
   `CREATE TABLE shares_sealed (
@@ -56,6 +57,10 @@ const MIGRATIONS = [
   `ALTER TABLE shares ADD COLUMN revoke_token_hash TEXT;`,
   `ALTER TABLE shares ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE shares ADD COLUMN lockouts INTEGER NOT NULL DEFAULT 0;`,
+  `ALTER TABLE shares ADD COLUMN e2e_salt BLOB;
+   ALTER TABLE shares ADD COLUMN e2e_kdf_iterations INTEGER;
+   ALTER TABLE shares ADD COLUMN link_proof_hash TEXT;
+   ALTER TABLE shares ADD COLUMN auth_hash TEXT;`,
 ];
 
 function migrate(db: DB): void {

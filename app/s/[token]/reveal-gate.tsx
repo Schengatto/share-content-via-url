@@ -1,14 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { BrandHeader } from "../../brand-header";
 import { COMPACT_PRIMARY_BUTTON, GHOST_BUTTON, LOCKED_BUTTON, PRIMARY_BUTTON } from "../../buttons";
 import { FIELD_LABEL, TEXT_INPUT } from "../../fields";
+import { decryptText, deriveRevealProofs, isWellFormedKey } from "@/lib/e2e-crypto";
 import { formatCountdown } from "@/lib/share-options";
 import { FileDownload } from "./file-download";
-import { revealShare, type RevealResult } from "./actions";
+import { revealE2eShare, revealShare, type RevealResult } from "./actions";
 
+type E2eParameters = { salt: string; kdfIterations: number };
+
+type GateResult = RevealResult | { ok: false; status: "undecryptable" };
+
+function subscribeToHashChange(onHashChange: () => void) {
+  window.addEventListener("hashchange", onHashChange);
+  return () => window.removeEventListener("hashchange", onHashChange);
+}
+
+function readFragment(): string | null {
+  return window.location.hash.slice(1);
+}
+
+function readServerFragment(): string | null {
+  return null;
+}
+
+async function openE2eShare(
+  token: string,
+  e2e: E2eParameters,
+  fragmentKey: string,
+  password: string,
+): Promise<GateResult> {
+  const { linkProof, authKey, encKey } = await deriveRevealProofs(fragmentKey, e2e.salt, e2e.kdfIterations, password);
+  const sealed = await revealE2eShare(token, linkProof, authKey);
+  if (!sealed.ok) return sealed;
+  try {
+    return { ok: true, kind: "text", text: await decryptText(encKey, sealed.ciphertext, sealed.iv) };
+  } catch {
+    return { ok: false, status: "undecryptable" };
+  }
+}
 
 function LockIcon() {
   return (
@@ -72,14 +105,16 @@ export function RevealGate({
   unavailableStatus,
   passwordProtected,
   initialLockRemainingMs,
+  e2e,
 }: {
   token: string;
   unavailableStatus: 404 | 410 | null;
   passwordProtected: boolean;
   initialLockRemainingMs: number;
+  e2e: E2eParameters | null;
 }) {
   const [phase, setPhase] = useState<"idle" | "loading" | "done">(unavailableStatus === null ? "idle" : "done");
-  const [result, setResult] = useState<RevealResult | null>(
+  const [result, setResult] = useState<GateResult | null>(
     unavailableStatus === null ? null : { ok: false, status: unavailableStatus },
   );
   const [password, setPassword] = useState("");
@@ -87,6 +122,9 @@ export function RevealGate({
   const [lockMs, setLockMs] = useState(Math.max(0, initialLockRemainingMs));
   const [lockRemainingMs, setLockRemainingMs] = useState(Math.max(0, initialLockRemainingMs));
   const locked = lockMs > 0;
+  const fragment = useSyncExternalStore(subscribeToHashChange, readFragment, readServerFragment);
+  const awaitingFragment = e2e !== null && fragment === null;
+  const incompleteLink = e2e !== null && fragment !== null && !isWellFormedKey(fragment);
 
   useEffect(() => {
     if (lockMs <= 0) return;
@@ -106,13 +144,24 @@ export function RevealGate({
   }, [lockMs]);
 
   async function reveal() {
+    if (awaitingFragment || incompleteLink) return;
     if (passwordProtected && password === "") {
       setNotice("Enter the password.");
       return;
     }
     setPhase("loading");
     setNotice(null);
-    const next = await revealShare(token, password);
+    let next: GateResult;
+    try {
+      next =
+        e2e === null || fragment === null
+          ? await revealShare(token, password)
+          : await openE2eShare(token, e2e, fragment, password);
+    } catch {
+      setNotice("Could not open the secret. Reload and try again.");
+      setPhase("idle");
+      return;
+    }
     if (!next.ok && next.status === "rate-limited") {
       setNotice(`Too many attempts. Try again in ${Math.ceil(next.retryAfterMs / 1000)} seconds.`);
       setPhase("idle");
@@ -141,7 +190,27 @@ export function RevealGate({
   }
 
   if (phase !== "done") {
+    if (incompleteLink) {
+      return (
+        <>
+          <BrandHeader status="incomplete" tone="empty" />
+          <Envelope
+            title="This link is incomplete."
+            seal={
+              <div className="relative mx-auto mb-[26px] grid h-16 w-16 place-items-center rounded-full bg-edge text-dim">
+                <EmptyIcon />
+              </div>
+            }
+          >
+            <p className="mx-auto max-w-[40ch] text-dim">
+              Ask the sender for the full link, including everything after the #.
+            </p>
+          </Envelope>
+        </>
+      );
+    }
     const copy = sealedCopy(locked, passwordProtected);
+    const loadingLabel = passwordProtected ? "Unlocking…" : "Breaking the seal…";
     return (
       <>
         <BrandHeader status={locked ? "locked" : "sealed"} tone={locked ? "burned" : "live"} />
@@ -198,15 +267,20 @@ export function RevealGate({
               )}
               <button
                 type="submit"
-                disabled={locked || phase === "loading"}
+                disabled={locked || phase === "loading" || awaitingFragment}
                 className={`${locked ? LOCKED_BUTTON : PRIMARY_BUTTON} mt-4 w-full`}
               >
                 {locked ? "Locked" : phase === "loading" ? "Unlocking…" : "Unlock secret"}
               </button>
             </form>
           ) : (
-            <button type="button" onClick={reveal} disabled={phase === "loading"} className={`${PRIMARY_BUTTON} w-full sm:w-auto`}>
-              {phase === "loading" ? "Breaking the seal…" : "Break the seal"}
+            <button
+              type="button"
+              onClick={reveal}
+              disabled={phase === "loading" || awaitingFragment}
+              className={`${PRIMARY_BUTTON} w-full sm:w-auto`}
+            >
+              {phase === "loading" ? loadingLabel : "Break the seal"}
             </button>
           )}
         </Envelope>
@@ -217,7 +291,9 @@ export function RevealGate({
   if (!result || !result.ok) {
     const status = result?.status ?? 500;
     const message =
-      status === 404
+      status === "undecryptable"
+        ? "This share could not be decrypted. The data may have been altered."
+        : status === 404
         ? "This link does not exist or has already been used."
         : status === 410
           ? "This link has expired or has no views left."
