@@ -32,6 +32,10 @@ const nextConfig = {
           { key: "Content-Security-Policy", value: csp },
         ],
       },
+      ...["/s/:path*", "/api/share/:path*"].map((source) => ({
+        source,
+        headers: [{ key: "Cache-Control", value: "no-store" }],
+      })),
     ];
   },
 };
