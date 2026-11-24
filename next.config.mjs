@@ -11,6 +11,12 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "no-referrer" },
         ],
       },
+      {
+        source: "/api/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "default-src 'none'; frame-ancestors 'none'" },
+        ],
+      },
       ...["/s/:path*", "/api/share/:path*"].map((source) => ({
         source,
         headers: [{ key: "Cache-Control", value: "no-store" }],

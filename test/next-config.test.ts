@@ -24,6 +24,12 @@ describe("next.config headers", () => {
     expect(globalHeaders["Content-Security-Policy"]).toBeUndefined();
   });
 
+  it("locks down api responses with a restrictive Content-Security-Policy", async () => {
+    expect((await headersFor("/api/:path*"))["Content-Security-Policy"]).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+  });
+
   it("does not disable caching for the static assets", async () => {
     expect((await headersFor("/:path*"))["Cache-Control"]).toBeUndefined();
   });

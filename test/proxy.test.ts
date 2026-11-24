@@ -1,6 +1,33 @@
 import { describe, it, expect } from "vitest";
 import { NextRequest } from "next/server";
-import { proxy } from "../proxy";
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
+import nextConfig from "../next.config.mjs";
+import { config, proxy } from "../proxy";
+
+function proxyRuns(url: string, headers?: Record<string, string>): boolean {
+  return unstable_doesMiddlewareMatch({ config, nextConfig, url, headers });
+}
+
+describe("proxy matcher", () => {
+  it.each(["/", "/s/abc"])("runs on %s", (url) => {
+    expect(proxyRuns(url)).toBe(true);
+  });
+
+  it.each(["/_next/static/x.js", "/_next/image", "/favicon.ico", "/api/share"])(
+    "skips %s",
+    (url) => {
+      expect(proxyRuns(url)).toBe(false);
+    },
+  );
+
+  it("skips router prefetch requests", () => {
+    expect(proxyRuns("/s/abc", { "next-router-prefetch": "1" })).toBe(false);
+  });
+
+  it("still runs on browser document prefetches so they carry a nonce", () => {
+    expect(proxyRuns("/s/abc", { purpose: "prefetch" })).toBe(true);
+  });
+});
 
 function nonceOf(policy: string | null): string {
   return /'nonce-([^']+)'/.exec(policy ?? "")![1];
