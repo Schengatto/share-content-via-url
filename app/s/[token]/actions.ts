@@ -63,9 +63,11 @@ export async function revealE2eShare(linkId: string, linkProof: string, authKey 
   if (authKey !== "") {
     const attemptLimit = passwordAttemptLimiter.check(ip);
     if (!attemptLimit.allowed) return { ok: false, status: "rate-limited", retryAfterMs: attemptLimit.retryAfterMs };
-    if (!isWellFormedKey(authKey)) return { ok: false, status: 400 };
+    if (typeof authKey !== "string" || !isWellFormedKey(authKey)) return { ok: false, status: 400 };
   }
-  if (!isWellFormedKey(linkProof)) return { ok: false, status: 404 };
+  if (typeof linkId !== "string" || typeof linkProof !== "string" || !isWellFormedKey(linkProof)) {
+    return { ok: false, status: 404 };
+  }
   try {
     const outcome = consumeE2eShare(
       appDb(),

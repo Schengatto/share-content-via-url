@@ -329,6 +329,16 @@ describe("revealE2eShare", () => {
     expect(shareCounters()).toEqual({ access_count: 0, failed_attempts: 0 });
   });
 
+  it("rejects non-string arguments without a server error or a counter change", async () => {
+    const { id, linkProof } = await createE2eShare(PASSWORD, { maxAccesses: "3" });
+    const asText = (value: unknown) => value as string;
+    expect(await revealE2eShare(asText(42), linkProof)).toEqual({ ok: false, status: 404 });
+    expect(await revealE2eShare(id, asText([linkProof]))).toEqual({ ok: false, status: 404 });
+    expect(await revealE2eShare(id, linkProof, asText([WRONG_KEY]))).toEqual({ ok: false, status: 400 });
+    expect(await revealE2eShare(id, linkProof, asText({ key: WRONG_KEY }))).toEqual({ ok: false, status: 400 });
+    expect(shareCounters()).toEqual({ access_count: 0, failed_attempts: 0 });
+  });
+
   it("asks for the password, and a wrong auth key does not use a view", async () => {
     const { id, linkProof, authKey } = await createE2eShare(PASSWORD, { maxAccesses: "3" });
     expect(await revealE2eShare(id, linkProof)).toEqual({ ok: false, status: "password-required" });
