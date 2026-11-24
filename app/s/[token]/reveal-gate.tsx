@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { BrandHeader } from "../../brand-header";
 import { COMPACT_PRIMARY_BUTTON, GHOST_BUTTON, LOCKED_BUTTON, PRIMARY_BUTTON } from "../../buttons";
 import { FIELD_LABEL, TEXT_INPUT } from "../../fields";
-import { LOCK_DURATION_LABEL, formatCountdown } from "@/lib/share-options";
+import { formatCountdown } from "@/lib/share-options";
 import { FileDownload } from "./file-download";
 import { revealShare, type RevealResult } from "./actions";
 
@@ -51,7 +51,7 @@ const LOCK_TICK_MS = 1000;
 function sealedCopy(locked: boolean, passwordProtected: boolean) {
   if (locked) {
     return {
-      title: `Locked for ${LOCK_DURATION_LABEL}.`,
+      title: "Locked for now.",
       intro: "Too many guesses are how secrets leak, so this one waits.",
     };
   }
@@ -115,6 +115,12 @@ export function RevealGate({
     const next = await revealShare(token, password);
     if (!next.ok && next.status === "rate-limited") {
       setNotice(`Too many attempts. Try again in ${Math.ceil(next.retryAfterMs / 1000)} seconds.`);
+      setPhase("idle");
+      return;
+    }
+    if (!next.ok && next.status === "wrong-password" && next.retryAfterMs === 0) {
+      setPassword("");
+      setNotice("Wrong password. Try again.");
       setPhase("idle");
       return;
     }

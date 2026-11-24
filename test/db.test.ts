@@ -45,6 +45,8 @@ describe("db", () => {
       "password_hash",
       "locked_until",
       "revoke_token_hash",
+      "failed_attempts",
+      "lockouts",
     ]);
   });
 
@@ -83,11 +85,11 @@ describe("db", () => {
     legacy.close();
 
     const db = openDb(path);
-    expect(db.pragma("user_version", { simple: true })).toBe(3);
+    expect(db.pragma("user_version", { simple: true })).toBe(4);
     expect(
       db
         .prepare(
-          "SELECT payload_format, filename, mime, access_count, password_hash, locked_until, revoke_token_hash FROM shares WHERE id = 'share-1'",
+          "SELECT payload_format, filename, mime, access_count, password_hash, locked_until, revoke_token_hash, failed_attempts, lockouts FROM shares WHERE id = 'share-1'",
         )
         .get(),
     ).toEqual({
@@ -98,10 +100,12 @@ describe("db", () => {
       password_hash: null,
       locked_until: null,
       revoke_token_hash: null,
+      failed_attempts: 0,
+      lockouts: 0,
     });
     db.close();
     const reopened = openDb(path);
-    expect(reopened.pragma("user_version", { simple: true })).toBe(3);
+    expect(reopened.pragma("user_version", { simple: true })).toBe(4);
     reopened.close();
   });
 
@@ -109,8 +113,8 @@ describe("db", () => {
     tempDir = mkdtempSync(join(tmpdir(), "share-db-"));
     const path = join(tempDir, "share.db");
     const newer = new Database(path);
-    newer.pragma("user_version = 4");
+    newer.pragma("user_version = 5");
     newer.close();
-    expect(() => openDb(path)).toThrow("Database schema version 4 is newer than this app supports (3)");
+    expect(() => openDb(path)).toThrow("Database schema version 5 is newer than this app supports (4)");
   });
 });

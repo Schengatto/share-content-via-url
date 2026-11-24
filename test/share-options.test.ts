@@ -5,10 +5,14 @@ import {
   DEFAULT_VIEWS,
   LOCK_DURATION_LABEL,
   LOCK_DURATION_MS,
+  MAX_SHARE_LOCK_MS,
   MAX_TTL_SECONDS,
   MIN_TTL_SECONDS,
+  SHARE_LOCK_FAILURES,
   TTL_STOPS,
+  VISITOR_LOCK_FAILURES,
   formatCountdown,
+  shareLockDurationMs,
   isValidPassword,
   isValidTtlSeconds,
   isValidViews,
@@ -40,6 +44,20 @@ describe("share limits", () => {
   it("locks for 5 minutes", () => {
     expect(LOCK_DURATION_MS).toBe(300_000);
     expect(LOCK_DURATION_LABEL).toBe("5 minutes");
+  });
+
+  it("locks a visitor after 3 wrong passwords and the share after 10", () => {
+    expect(VISITOR_LOCK_FAILURES).toBe(3);
+    expect(SHARE_LOCK_FAILURES).toBe(10);
+  });
+
+  it("doubles the share-wide lock on each new lock, capped at 24 hours", () => {
+    expect(shareLockDurationMs(0)).toBe(LOCK_DURATION_MS);
+    expect(shareLockDurationMs(1)).toBe(2 * LOCK_DURATION_MS);
+    expect(shareLockDurationMs(8)).toBe(256 * LOCK_DURATION_MS);
+    expect(shareLockDurationMs(9)).toBe(MAX_SHARE_LOCK_MS);
+    expect(shareLockDurationMs(2000)).toBe(MAX_SHARE_LOCK_MS);
+    expect(MAX_SHARE_LOCK_MS).toBe(86_400_000);
   });
 });
 

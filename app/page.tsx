@@ -14,6 +14,7 @@ import {
   MIN_PASSWORD_LENGTH,
   MIN_VIEWS,
   TTL_STOPS,
+  VISITOR_LOCK_FAILURES,
   tokenFromShareUrl,
   viewsLabel,
 } from "@/lib/share-options";
@@ -247,7 +248,7 @@ export default function CreatePage() {
                 <span className="ml-1.5 normal-case tracking-normal text-faint">optional</span>
               </label>
               <span id="share-password-hint" className="text-[12.5px] text-dim">
-                At least {MIN_PASSWORD_LENGTH} characters. A wrong guess locks it for {LOCK_DURATION_LABEL}.
+                At least {MIN_PASSWORD_LENGTH} characters. {VISITOR_LOCK_FAILURES} wrong guesses lock that visitor out for {LOCK_DURATION_LABEL}.
               </span>
             </div>
             <div className="flex gap-2">

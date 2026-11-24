@@ -5,17 +5,19 @@ import { generateToken, hashToken, hashesMatch, deriveKey, encrypt, decrypt } fr
 import { openPayload, sealPayload } from "./sealed-payload";
 import { hashPassword, verifyPassword } from "./password";
 import {
-  LOCK_DURATION_MS,
   MAX_PASSWORD_LENGTH,
   MAX_TTL_SECONDS,
   MAX_VIEWS,
   MIN_PASSWORD_LENGTH,
   MIN_TTL_SECONDS,
   MIN_VIEWS,
+  SHARE_LOCK_FAILURES,
   isValidPassword,
   isValidTtlSeconds,
   isValidViews,
+  shareLockDurationMs,
 } from "./share-options";
+import { visitorPasswordLock } from "./visitor-lock";
 
 export class ShareError extends Error {
   constructor(
@@ -77,6 +79,8 @@ interface ShareRow {
   password_hash: string | null;
   locked_until: number | null;
   revoke_token_hash: string | null;
+  failed_attempts: number;
+  lockouts: number;
 }
 
 export type ShareStatus =
@@ -198,11 +202,26 @@ function lockedOutcome(db: DB, id: string, now: number): ConsumeOutcome {
   return { status: "locked", retryAfterMs: Math.max(0, (current.locked_until ?? now) - now) };
 }
 
+function wrongPasswordOutcome(db: DB, id: string, visitorKey: string, now: number): ConsumeOutcome {
+  const visitorLockMs = visitorPasswordLock.recordFailure(visitorKey);
+  const failures = db.prepare("SELECT failed_attempts, lockouts FROM shares WHERE id = ?").get(id) as Pick<
+    ShareRow,
+    "failed_attempts" | "lockouts"
+  >;
+  if (failures.failed_attempts < SHARE_LOCK_FAILURES) return { status: "wrong-password", retryAfterMs: visitorLockMs };
+  const shareLockMs = shareLockDurationMs(failures.lockouts);
+  db.prepare(
+    "UPDATE shares SET locked_until = ?, lockouts = lockouts + 1, failed_attempts = 0 WHERE id = ?",
+  ).run(now + shareLockMs, id);
+  return { status: "wrong-password", retryAfterMs: Math.max(shareLockMs, visitorLockMs) };
+}
+
 export async function consumeShare(
   db: DB,
   blobs: BlobStore,
   token: string,
   password = "",
+  visitor = "local",
 ): Promise<ConsumeOutcome> {
   const tokenHash = hashToken(token);
   const row = db
@@ -226,14 +245,18 @@ export async function consumeShare(
 
   if (row.password_hash !== null) {
     if (password === "") return { status: "password-required" };
+    const visitorKey = `${row.id}|${visitor}`;
+    const visitorLockMs = visitorPasswordLock.lockedForMs(visitorKey);
+    if (visitorLockMs > 0) return { status: "locked", retryAfterMs: visitorLockMs };
     const claim = db
-      .prepare("UPDATE shares SET locked_until = ? WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)")
-      .run(now + LOCK_DURATION_MS, row.id, now);
+      .prepare(
+        "UPDATE shares SET failed_attempts = failed_attempts + 1 WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)",
+      )
+      .run(row.id, now);
     if (claim.changes !== 1) return lockedOutcome(db, row.id, now);
-    if (!verifyPassword(password, row.password_hash)) {
-      return { status: "wrong-password", retryAfterMs: LOCK_DURATION_MS };
-    }
-    db.prepare("UPDATE shares SET locked_until = NULL WHERE id = ?").run(row.id);
+    if (!verifyPassword(password, row.password_hash)) return wrongPasswordOutcome(db, row.id, visitorKey, now);
+    db.prepare("UPDATE shares SET failed_attempts = failed_attempts - 1 WHERE id = ?").run(row.id);
+    visitorPasswordLock.clear(visitorKey);
   }
 
   // Atomic, race-safe increment: only succeeds if still valid right now.

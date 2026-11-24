@@ -31,7 +31,7 @@ export async function revealShare(token: string, password = ""): Promise<RevealR
     if (!attemptLimit.allowed) return { ok: false, status: "rate-limited", retryAfterMs: attemptLimit.retryAfterMs };
   }
   try {
-    const outcome = await consumeShare(appDb(), appBlobs(), token, password);
+    const outcome = await consumeShare(appDb(), appBlobs(), token, password, ip);
     if (outcome.status !== "opened") return { ok: false, ...outcome };
     const r = outcome.share;
     if (r.kind === "text") {

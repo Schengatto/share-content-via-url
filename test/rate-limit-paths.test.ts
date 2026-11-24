@@ -8,6 +8,7 @@ import {
   REVEAL_LIMIT_PER_MINUTE,
   REVOKE_LIMIT_PER_MINUTE,
 } from "../lib/rate-limit";
+import { LOCK_DURATION_MS, VISITOR_LOCK_FAILURES } from "../lib/share-options";
 
 const wiring = vi.hoisted(() => ({
   db: undefined as DB | undefined,
@@ -105,7 +106,7 @@ describe("password attempt rate limit", () => {
     expect(await revealShare(token, "guess-wrong")).toMatchObject({ ok: false, status: "rate-limited" });
 
     wiring.ip = "10.9.3.2";
-    expect(await revealShare(token, "guess-wrong")).toMatchObject({ ok: false, status: "locked" });
+    expect(await revealShare(token, "guess-wrong")).toEqual({ ok: false, status: "wrong-password", retryAfterMs: 0 });
   });
 
   it("does not count a reveal without a password as a password attempt", async () => {
@@ -114,6 +115,25 @@ describe("password attempt rate limit", () => {
     for (let attempt = 0; attempt < PASSWORD_ATTEMPT_LIMIT_PER_MINUTE + 1; attempt++) {
       expect(await revealShare(token)).toEqual({ ok: false, status: "password-required" });
     }
+  });
+});
+
+describe("per-IP password lock", () => {
+  it("locks out only the IP that sent 3 wrong passwords", async () => {
+    wiring.ip = "10.9.7.1";
+    const { token } = await newShare("heron-42");
+    for (let guess = 1; guess < VISITOR_LOCK_FAILURES; guess++) {
+      expect(await revealShare(token, "guess-wrong")).toEqual({ ok: false, status: "wrong-password", retryAfterMs: 0 });
+    }
+    expect(await revealShare(token, "guess-wrong")).toEqual({
+      ok: false,
+      status: "wrong-password",
+      retryAfterMs: LOCK_DURATION_MS,
+    });
+    expect(await revealShare(token, "heron-42")).toMatchObject({ ok: false, status: "locked" });
+
+    wiring.ip = "10.9.7.2";
+    expect(await revealShare(token, "heron-42")).toEqual({ ok: true, kind: "text", text: "lantern-orbit" });
   });
 });
 
