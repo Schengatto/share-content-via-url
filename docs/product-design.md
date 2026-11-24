@@ -203,6 +203,8 @@ Scansione **all'upload, sul contenuto in chiaro, prima della cifratura** (dopo n
 - Cron di cleanup schedulato.
 - Object storage cloud (S3) al posto del filesystem.
 - Integrazione VirusTotal.
+- Cifratura end-to-end nel browser per il testo, chiave nel fragment dell'URL (SHS-12/13/14):
+  spec in `docs/superpowers/specs/2026-11-24-e2e-encryption-design.md`, in attesa di approvazione.
 
 ---
 
