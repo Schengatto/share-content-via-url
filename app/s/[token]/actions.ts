@@ -1,15 +1,18 @@
 "use server";
 
+import { headers } from "next/headers";
 import { appDb, appBlobs, ensureStarted } from "@/lib/app";
 import { consumeShare } from "@/lib/store";
 import { MAX_PASSWORD_LENGTH } from "@/lib/share-options";
+import { passwordAttemptLimiter, revealLimiter } from "@/lib/rate-limit";
+import { clientIp } from "@/lib/client-ip";
 
 /** Serializable result of a reveal, safe to return across the RSC boundary. */
 export type RevealResult =
   | { ok: true; kind: "text"; text: string }
   | { ok: true; kind: "file"; filename: string; mime: string; base64: string }
   | { ok: false; status: "password-required" }
-  | { ok: false; status: "wrong-password" | "locked"; retryAfterMs: number }
+  | { ok: false; status: "wrong-password" | "locked" | "rate-limited"; retryAfterMs: number }
   | { ok: false; status: number };
 
 /**
@@ -20,6 +23,13 @@ export type RevealResult =
 export async function revealShare(token: string, password = ""): Promise<RevealResult> {
   if (typeof password !== "string" || password.length > MAX_PASSWORD_LENGTH) return { ok: false, status: 400 };
   ensureStarted();
+  const ip = clientIp(await headers());
+  const revealLimit = revealLimiter.check(ip);
+  if (!revealLimit.allowed) return { ok: false, status: "rate-limited", retryAfterMs: revealLimit.retryAfterMs };
+  if (password !== "") {
+    const attemptLimit = passwordAttemptLimiter.check(ip);
+    if (!attemptLimit.allowed) return { ok: false, status: "rate-limited", retryAfterMs: attemptLimit.retryAfterMs };
+  }
   try {
     const outcome = await consumeShare(appDb(), appBlobs(), token, password);
     if (outcome.status !== "opened") return { ok: false, ...outcome };

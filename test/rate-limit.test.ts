@@ -19,6 +19,16 @@ describe("rate-limit", () => {
     expect(rl.allow("ip-a")).toBe(false);
   });
 
+  it("reports how long until the window resets when refusing", () => {
+    let now = 1000;
+    const rl = createRateLimiter({ limit: 1, windowMs: 60_000, now: () => now });
+    expect(rl.check("ip-a")).toEqual({ allowed: true, retryAfterMs: 0 });
+    now += 20_000;
+    expect(rl.check("ip-a")).toEqual({ allowed: false, retryAfterMs: 40_000 });
+    now += 40_000;
+    expect(rl.check("ip-a")).toEqual({ allowed: true, retryAfterMs: 0 });
+  });
+
   it("resets after the window elapses", () => {
     let now = 1000;
     const rl = createRateLimiter({ limit: 1, windowMs: 60_000, now: () => now });

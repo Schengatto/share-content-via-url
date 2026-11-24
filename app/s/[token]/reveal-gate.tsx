@@ -113,6 +113,11 @@ export function RevealGate({
     setPhase("loading");
     setNotice(null);
     const next = await revealShare(token, password);
+    if (!next.ok && next.status === "rate-limited") {
+      setNotice(`Too many attempts. Try again in ${Math.ceil(next.retryAfterMs / 1000)} seconds.`);
+      setPhase("idle");
+      return;
+    }
     if (!next.ok && (next.status === "wrong-password" || next.status === "locked")) {
       setPassword("");
       setLockMs(next.retryAfterMs);

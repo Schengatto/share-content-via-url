@@ -33,6 +33,7 @@ Stack: Next.js 16 (App Router, React 19), TypeScript, SQLite (better-sqlite3), e
 - **Browser-side attacks.** Every response sends a Content-Security-Policy (`default-src 'self'`, `script-src 'self' 'unsafe-inline'`, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Shared text is always rendered as escaped text, never as HTML. Share pages (`/s/*`) are marked `noindex`.
 - **Hostile uploads.** Uploads are capped at 25 MB, the MIME type must be on an allowlist (PNG, JPEG, GIF, WebP, BMP, PDF, ZIP, plain text, CSV), executable and script extensions are blocked, and the real type is checked against the magic bytes. An optional ClamAV scan runs on the plaintext before encryption.
 - **Bulk creation.** Creating shares is rate limited to 10 per minute per IP (`RATE_LIMIT`).
+- **Brute force and abuse of the link endpoints.** Per IP and per minute, opening a share is limited to 30 requests, password attempts to 10 and revoke requests (`DELETE /api/share/<token>`) to 20. Past a limit the reveal screen asks the visitor to wait and `DELETE` answers `429` with `Retry-After`, with the same response for existing and unknown shares and without consuming a view. The limits live in memory (single node).
 
 ### What it does NOT protect against, and trust assumptions
 
