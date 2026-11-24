@@ -8,10 +8,12 @@ import {
   fromBase64Url,
   isWellFormedKey,
   openPayloadBytes,
+  paddedPayloadLength,
   sealPayloadBytes,
   sha256Hex,
   toBase64Url,
 } from "../lib/e2e-crypto";
+import { MAX_SIZE } from "../lib/file-support";
 import { sealPayload } from "../lib/sealed-payload";
 
 const TEXT_METADATA = { filename: null, mime: "text/plain" };
@@ -122,16 +124,74 @@ describe("e2e-crypto", () => {
     expect(first.iv).not.toBe(second.iv);
   });
 
-  it("seals payloads compatibly with the Buffer implementation", () => {
+  it("opens payloads sealed by the Buffer implementation", () => {
     const metadata = { filename: "note.txt", mime: "text/plain" };
     const content = new Uint8Array([0, 1, 2, 250, 255]);
-    const sealed = sealPayloadBytes(metadata, content);
+    const opened = openPayloadBytes(new Uint8Array(sealPayload(metadata, Buffer.from(content))));
 
-    expect(Buffer.from(sealed).equals(sealPayload(metadata, Buffer.from(content)))).toBe(true);
-    const opened = openPayloadBytes(sealed);
     expect(opened.filename).toBe("note.txt");
     expect(opened.mime).toBe("text/plain");
     expect(Array.from(opened.content)).toEqual(Array.from(content));
+  });
+
+  it("round trips content byte for byte, including trailing zero bytes", () => {
+    const content = new Uint8Array([7, 0, 9, 0, 0]);
+    const opened = openPayloadBytes(sealPayloadBytes(TEXT_METADATA, content));
+
+    expect(opened.mime).toBe("text/plain");
+    expect(opened.filename).toBeNull();
+    expect(Array.from(opened.content)).toEqual(Array.from(content));
+  });
+
+  it("opens an old format payload without a length field to exactly its content", () => {
+    const header = new TextEncoder().encode(JSON.stringify({ filename: null, mime: "text/plain" }));
+    const content = new Uint8Array([4, 5, 6, 0]);
+    const payload = new Uint8Array(4 + header.length + content.length);
+    new DataView(payload.buffer).setUint32(0, header.length);
+    payload.set(header, 4);
+    payload.set(content, 4 + header.length);
+
+    expect(Array.from(openPayloadBytes(payload).content)).toEqual(Array.from(content));
+  });
+
+  it("rejects a header length larger than the remaining bytes", () => {
+    const header = new TextEncoder().encode(JSON.stringify({ filename: null, mime: "text/plain", length: 50 }));
+    const payload = new Uint8Array(4 + header.length + 10);
+    new DataView(payload.buffer).setUint32(0, header.length);
+    payload.set(header, 4);
+
+    expect(() => openPayloadBytes(payload)).toThrow();
+  });
+
+  it("rejects a negative header length", () => {
+    const header = new TextEncoder().encode(JSON.stringify({ filename: null, mime: "text/plain", length: -1 }));
+    const payload = new Uint8Array(4 + header.length + 10);
+    new DataView(payload.buffer).setUint32(0, header.length);
+    payload.set(header, 4);
+
+    expect(() => openPayloadBytes(payload)).toThrow();
+  });
+
+  it("pads sealed payloads to the bucket length", () => {
+    const small = sealPayloadBytes(TEXT_METADATA, new Uint8Array(3));
+    const larger = sealPayloadBytes(TEXT_METADATA, new Uint8Array(300));
+    const header = new TextEncoder().encode(JSON.stringify({ filename: null, mime: "text/plain", length: 2000 }));
+
+    expect(small.length).toBe(1024);
+    expect(larger.length).toBe(small.length);
+    expect(sealPayloadBytes(TEXT_METADATA, new Uint8Array(2000)).length).toBe(
+      paddedPayloadLength(4 + header.length + 2000),
+    );
+  });
+
+  it("computes the padded payload length per bucket rule", () => {
+    expect(paddedPayloadLength(1)).toBe(1024);
+    expect(paddedPayloadLength(1024)).toBe(1024);
+    expect(paddedPayloadLength(1025)).toBe(2048);
+    expect(paddedPayloadLength(700_000)).toBe(1_048_576);
+    expect(paddedPayloadLength(1_048_577)).toBe(2_097_152);
+    expect(paddedPayloadLength(MAX_SIZE - 10)).toBe(MAX_SIZE);
+    expect(paddedPayloadLength(MAX_SIZE + 50)).toBe(MAX_SIZE + 50);
   });
 
   it("rejects a truncated sealed payload", () => {

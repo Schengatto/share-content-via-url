@@ -6,6 +6,7 @@ import {
   createDecipheriv,
   timingSafeEqual,
 } from "node:crypto";
+import { derivePasswordSecret } from "./password";
 
 /**
  * Token-derived encryption for capability URLs.
@@ -21,6 +22,9 @@ const KEY_BYTES = 32; // AES-256
 const IV_BYTES = 12; // GCM nonce
 const HKDF_SALT = "share-app:hkdf:v1";
 const HKDF_INFO = "share-app:aes-256-gcm:v1";
+const PASSWORD_HKDF_INFO = "share-app:aes-256-gcm:password:v1";
+
+export const PASSWORD_KEY_SALT_BYTES = 16;
 
 /** Generate a fresh 256-bit token, base64url-encoded for use in the URL. */
 export function generateToken(): string {
@@ -46,6 +50,18 @@ export function deriveKey(token: string): Buffer {
     ikm,
     Buffer.from(HKDF_SALT),
     Buffer.from(HKDF_INFO),
+    KEY_BYTES,
+  );
+  return Buffer.from(derived);
+}
+
+export function derivePasswordBoundKey(token: string, password: string, keySalt: Buffer): Buffer {
+  const ikm = Buffer.concat([deriveKey(token), derivePasswordSecret(password, keySalt)]);
+  const derived = hkdfSync(
+    "sha256",
+    ikm,
+    Buffer.from(HKDF_SALT),
+    Buffer.from(PASSWORD_HKDF_INFO),
     KEY_BYTES,
   );
   return Buffer.from(derived);

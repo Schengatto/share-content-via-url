@@ -21,7 +21,13 @@ describe("next.config headers", () => {
     const globalHeaders = await headersFor("/:path*");
     expect(globalHeaders["Referrer-Policy"]).toBe("no-referrer");
     expect(globalHeaders["X-Content-Type-Options"]).toBe("nosniff");
-    expect(globalHeaders["Content-Security-Policy"]).toContain("default-src 'self'");
+    expect(globalHeaders["Content-Security-Policy"]).toBeUndefined();
+  });
+
+  it("locks down api responses with a restrictive Content-Security-Policy", async () => {
+    expect((await headersFor("/api/:path*"))["Content-Security-Policy"]).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    );
   });
 
   it("does not disable caching for the static assets", async () => {

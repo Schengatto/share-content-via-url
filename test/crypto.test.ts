@@ -3,8 +3,10 @@ import {
   generateToken,
   hashToken,
   deriveKey,
+  derivePasswordBoundKey,
   encrypt,
   decrypt,
+  PASSWORD_KEY_SALT_BYTES,
 } from "../lib/crypto";
 
 describe("crypto", () => {
@@ -68,5 +70,24 @@ describe("crypto", () => {
     expect(() =>
       decrypt(ciphertext, deriveKey(generateToken()), iv, authTag),
     ).toThrow();
+  });
+
+  describe("derivePasswordBoundKey", () => {
+    const token = generateToken();
+    const keySalt = Buffer.alloc(PASSWORD_KEY_SALT_BYTES, 7);
+
+    it("is a deterministic 32-byte key that differs from the token-only key", () => {
+      const first = derivePasswordBoundKey(token, "heron-42", keySalt);
+      expect(first.length).toBe(32);
+      expect(first.equals(derivePasswordBoundKey(token, "heron-42", keySalt))).toBe(true);
+      expect(first.equals(deriveKey(token))).toBe(false);
+    });
+
+    it("differs for another password, another salt or another token", () => {
+      const base = derivePasswordBoundKey(token, "heron-42", keySalt);
+      expect(base.equals(derivePasswordBoundKey(token, "heron-43", keySalt))).toBe(false);
+      expect(base.equals(derivePasswordBoundKey(token, "heron-42", Buffer.alloc(PASSWORD_KEY_SALT_BYTES, 8)))).toBe(false);
+      expect(base.equals(derivePasswordBoundKey(generateToken(), "heron-42", keySalt))).toBe(false);
+    });
   });
 });

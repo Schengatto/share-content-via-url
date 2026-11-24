@@ -1,3 +1,4 @@
+import { MAX_SIZE } from "./file-support";
 import type { PayloadMetadata } from "./sealed-payload";
 
 export const E2E_FORMAT = "e2e-v1";
@@ -9,6 +10,8 @@ export const E2E_MIN_CIPHERTEXT_BYTES = 20;
 const KEY_BYTES = 32;
 const HEADER_LENGTH_BYTES = 4;
 const AUTH_TAG_BITS = 128;
+const PADDING_MIN_BUCKET_BYTES = 1024;
+const PADDING_POWER_OF_TWO_LIMIT_BYTES = 1024 * 1024;
 const BASE64_CHUNK_BYTES = 32768;
 const WELL_FORMED_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]*$/;
@@ -53,9 +56,23 @@ export function isWellFormedKey(text: string): boolean {
   return WELL_FORMED_KEY_PATTERN.test(text);
 }
 
+export function paddedPayloadLength(unpaddedLength: number): number {
+  if (unpaddedLength <= PADDING_MIN_BUCKET_BYTES) {
+    return PADDING_MIN_BUCKET_BYTES;
+  }
+  const bucket =
+    unpaddedLength <= PADDING_POWER_OF_TWO_LIMIT_BYTES
+      ? 2 ** (32 - Math.clz32(unpaddedLength - 1))
+      : Math.ceil(unpaddedLength / PADDING_POWER_OF_TWO_LIMIT_BYTES) * PADDING_POWER_OF_TWO_LIMIT_BYTES;
+  return bucket > MAX_SIZE ? Math.max(unpaddedLength, MAX_SIZE) : bucket;
+}
+
 export function sealPayloadBytes(metadata: PayloadMetadata, content: Uint8Array): Uint8Array<ArrayBuffer> {
-  const header = new TextEncoder().encode(JSON.stringify({ filename: metadata.filename, mime: metadata.mime }));
-  const payload = new Uint8Array(HEADER_LENGTH_BYTES + header.length + content.length);
+  const header = new TextEncoder().encode(
+    JSON.stringify({ filename: metadata.filename, mime: metadata.mime, length: content.length }),
+  );
+  const unpaddedLength = HEADER_LENGTH_BYTES + header.length + content.length;
+  const payload = new Uint8Array(paddedPayloadLength(unpaddedLength));
   new DataView(payload.buffer).setUint32(0, header.length);
   payload.set(header, HEADER_LENGTH_BYTES);
   payload.set(content, HEADER_LENGTH_BYTES + header.length);
@@ -70,8 +87,12 @@ export function openPayloadBytes(payload: Uint8Array): PayloadMetadata & { conte
   }
   const metadata = JSON.parse(
     new TextDecoder().decode(payload.subarray(HEADER_LENGTH_BYTES, headerEnd)),
-  ) as PayloadMetadata;
-  return { filename: metadata.filename, mime: metadata.mime, content: payload.subarray(headerEnd) };
+  ) as PayloadMetadata & { length?: unknown };
+  const contentEnd = typeof metadata.length === "number" ? headerEnd + metadata.length : payload.length;
+  if (!Number.isSafeInteger(contentEnd) || contentEnd < headerEnd || contentEnd > payload.length) {
+    throw new Error("Truncated payload");
+  }
+  return { filename: metadata.filename, mime: metadata.mime, content: payload.subarray(headerEnd, contentEnd) };
 }
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {

@@ -61,6 +61,7 @@ const MIGRATIONS = [
    ALTER TABLE shares ADD COLUMN e2e_kdf_iterations INTEGER;
    ALTER TABLE shares ADD COLUMN link_proof_hash TEXT;
    ALTER TABLE shares ADD COLUMN auth_hash TEXT;`,
+  `ALTER TABLE shares ADD COLUMN password_key_salt BLOB;`,
 ];
 
 function migrate(db: DB): void {
