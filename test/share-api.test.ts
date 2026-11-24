@@ -65,7 +65,7 @@ describe("POST /api/share options", () => {
     [{ maxAccesses: "abc" }, "maxAccesses must be an integer from 1 to 100"],
     [{ ttlSeconds: "3599" }, "ttlSeconds must be an integer from 3600 to 31536000"],
     [{ ttlSeconds: "31536001" }, "ttlSeconds must be an integer from 3600 to 31536000"],
-    [{ password: "abc" }, "Password must be 4 to 128 characters"],
+    [{ password: "seven-7" }, "Password must be 8 to 128 characters"],
   ])("rejects %o with 400", async (fields, error) => {
     const response = await postShare(fields);
     expect(response.status).toBe(400);
@@ -125,5 +125,23 @@ describe("revealShare", () => {
     vi.setSystemTime(1_800_000_000_000 + LOCK_DURATION_MS);
     expect(await revealShare(token, "heron-42")).toEqual({ ok: true, kind: "text", text: "lantern-orbit" });
     expect(await revealShare(token, "heron-42")).toEqual({ ok: false, status: 404 });
+  });
+
+  it("rejects a non-string or oversized password without checking, locking or consuming", async () => {
+    const { token } = await createShare(wiring.db!, wiring.blobs!, {
+      kind: "text",
+      content: Buffer.from("lantern-orbit"),
+      mime: "text/plain",
+      maxAccesses: 1,
+      ttlSeconds: DEFAULT_TTL_SECONDS,
+      password: "heron-42",
+    });
+    expect(await revealShare(token, "x".repeat(129))).toEqual({ ok: false, status: 400 });
+    expect(await revealShare(token, 42 as unknown as string)).toEqual({ ok: false, status: 400 });
+    expect(wiring.db!.prepare("SELECT access_count, locked_until FROM shares").get()).toEqual({
+      access_count: 0,
+      locked_until: null,
+    });
+    expect(await revealShare(token, "heron-42")).toEqual({ ok: true, kind: "text", text: "lantern-orbit" });
   });
 });

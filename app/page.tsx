@@ -246,7 +246,7 @@ export default function CreatePage() {
                 <span className="ml-1.5 normal-case tracking-normal text-faint">optional</span>
               </label>
               <span id="share-password-hint" className="text-[12.5px] text-dim">
-                A wrong password locks it for {LOCK_DURATION_LABEL}.
+                At least {MIN_PASSWORD_LENGTH} characters. A wrong guess locks it for {LOCK_DURATION_LABEL}.
               </span>
             </div>
             <div className="flex gap-2">

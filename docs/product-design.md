@@ -22,7 +22,7 @@ Ogni condivisione ha regole di scadenza **combinabili**:
 - **scadenza temporale** sempre presente, da 1 ora a 365 giorni (default 24 ore);
   lo slider ha gli stop 1–24 ore, poi 2, 3, 4, 5, 6, 7, 14, 30, 60, 90, 180, 365 giorni.
 
-Opzionalmente una **password** (4–128 caratteri). È un cancello d'accesso, non
+Opzionalmente una **password** (8–128 caratteri). È un cancello d'accesso, non
 entra nella chiave di cifratura. Una password sbagliata blocca lo share per
 5 minuti lato server, senza consumare visite; durante il blocco nessuna password
 viene verificata. Limiti e default stanno solo in `lib/share-options.ts`.
@@ -112,7 +112,7 @@ contatori e `created_at`, necessari alla logica.
 ### Creazione — `POST /api/share`
 1. Rate-limit per IP (default 10/min). Superato → **429**.
 2. Parsing `FormData`: `kind`, `text` **oppure** `file`, `maxAccesses` (1–100, default 1),
-   `ttlSeconds` (3600–31536000, default 86400), `password?` (4–128). Fuori range → **400**;
+   `ttlSeconds` (3600–31536000, default 86400), `password?` (8–128). Fuori range → **400**;
    `expires_at` è calcolato dall'orologio del server.
 3. **Content-safety** sul contenuto **in chiaro** (prima della cifratura). La password,
    se presente, è salvata solo come hash scrypt.

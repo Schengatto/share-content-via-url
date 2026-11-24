@@ -18,7 +18,7 @@ Manuale d'uso (utente finale) e guida di sviluppo/manutenzione.
 4. Scegli con gli slider le **visite massime** (1 = monouso, fino a 100) e la
    **scadenza** (da 1 ora a 365 giorni, default 24 ore). Il link brucia alla
    prima delle due condizioni.
-5. (Opzionale) imposta una **password** (4–128 caratteri). Una password
+5. (Opzionale) imposta una **password** (8–128 caratteri). Una password
    sbagliata blocca il link per 5 minuti.
 6. Premi **Genera link**: appare il link. **Copialo subito** — è mostrato una sola volta.
 

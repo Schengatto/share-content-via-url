@@ -102,4 +102,13 @@ describe("db", () => {
     expect(reopened.pragma("user_version", { simple: true })).toBe(2);
     reopened.close();
   });
+
+  it("refuses to open a database migrated by a newer version of the app", () => {
+    tempDir = mkdtempSync(join(tmpdir(), "share-db-"));
+    const path = join(tempDir, "share.db");
+    const newer = new Database(path);
+    newer.pragma("user_version = 3");
+    newer.close();
+    expect(() => openDb(path)).toThrow("Database schema version 3 is newer than this app supports (2)");
+  });
 });

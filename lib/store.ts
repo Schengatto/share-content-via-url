@@ -186,6 +186,14 @@ export async function createShare(
  * Validate, atomically consume one access, decrypt and return the content.
  * Purges the share when expired/exhausted. Throws ShareError(404|410).
  */
+function lockedOutcome(db: DB, id: string, now: number): ConsumeOutcome {
+  const current = db.prepare("SELECT locked_until FROM shares WHERE id = ?").get(id) as
+    | { locked_until: number | null }
+    | undefined;
+  if (!current) throw new ShareError("Gone", 410, "GONE");
+  return { status: "locked", retryAfterMs: Math.max(0, (current.locked_until ?? now) - now) };
+}
+
 export async function consumeShare(
   db: DB,
   blobs: BlobStore,
@@ -214,10 +222,14 @@ export async function consumeShare(
 
   if (row.password_hash !== null) {
     if (password === "") return { status: "password-required" };
+    const claim = db
+      .prepare("UPDATE shares SET locked_until = ? WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)")
+      .run(now + LOCK_DURATION_MS, row.id, now);
+    if (claim.changes !== 1) return lockedOutcome(db, row.id, now);
     if (!verifyPassword(password, row.password_hash)) {
-      db.prepare("UPDATE shares SET locked_until = ? WHERE id = ?").run(now + LOCK_DURATION_MS, row.id);
       return { status: "wrong-password", retryAfterMs: LOCK_DURATION_MS };
     }
+    db.prepare("UPDATE shares SET locked_until = NULL WHERE id = ?").run(row.id);
   }
 
   // Atomic, race-safe increment: only succeeds if still valid right now.

@@ -276,8 +276,8 @@ describe("share option limits", () => {
     }
   });
 
-  it("rejects a password shorter than 4 or longer than 128 characters", async () => {
-    await expect(createShare(db, blobs, textInput({ password: "abc" }))).rejects.toMatchObject({
+  it("rejects a password shorter than 8 or longer than 128 characters", async () => {
+    await expect(createShare(db, blobs, textInput({ password: "seven-7" }))).rejects.toMatchObject({
       status: 400,
       code: "BAD_PASSWORD",
     });
@@ -361,6 +361,34 @@ describe("password protected shares", () => {
       expires_at: START + DEFAULT_TTL_SECONDS * 1000,
       max_accesses: 2,
     });
+  });
+
+  it("clears the claimed lock after a correct password", async () => {
+    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD, maxAccesses: 2 }));
+    const share = await openShare(token, PASSWORD);
+    expect(share.content.toString()).toBe("top secret");
+    expect(accessCount()).toEqual({ access_count: 1 });
+    expect(lockedUntil()).toEqual({ locked_until: null });
+    expect(await openShare(token, PASSWORD)).toMatchObject({ kind: "text" });
+  });
+
+  it("reports locked without checking the password when another attempt claimed the lock first", async () => {
+    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD }));
+    const prepare = db.prepare.bind(db);
+    vi.spyOn(db, "prepare").mockImplementation(((sql: string) => {
+      const statement = prepare(sql);
+      if (!sql.startsWith("SELECT * FROM shares")) return statement;
+      return {
+        get: (...parameters: unknown[]) => {
+          const row = statement.get(...parameters);
+          prepare("UPDATE shares SET locked_until = ?").run(START + 1000);
+          return row;
+        },
+      };
+    }) as typeof db.prepare);
+    await expect(consumeShare(db, blobs, token, PASSWORD)).resolves.toEqual({ status: "locked", retryAfterMs: 1000 });
+    expect(accessCount()).toEqual({ access_count: 0 });
+    expect(lockedUntil()).toEqual({ locked_until: START + 1000 });
   });
 
   it("leaves shares without a password unaffected by a password argument", async () => {

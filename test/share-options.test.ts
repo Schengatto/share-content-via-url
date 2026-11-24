@@ -30,10 +30,10 @@ describe("share limits", () => {
     expect([MIN_TTL_SECONDS - 1, MAX_TTL_SECONDS + 1, 3600.5].some(isValidTtlSeconds)).toBe(false);
   });
 
-  it("accepts passwords from 4 to 128 characters", () => {
-    expect(isValidPassword("abcd")).toBe(true);
+  it("accepts passwords from 8 to 128 characters", () => {
+    expect(isValidPassword("x".repeat(8))).toBe(true);
     expect(isValidPassword("x".repeat(128))).toBe(true);
-    expect(isValidPassword("abc")).toBe(false);
+    expect(isValidPassword("x".repeat(7))).toBe(false);
     expect(isValidPassword("x".repeat(129))).toBe(false);
   });
 

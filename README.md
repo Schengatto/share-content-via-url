@@ -6,7 +6,7 @@ Share a piece of text or a file through a link that burns after a set number of 
 
 - Shares **text** or a **file** (up to 25 MB) through a single link.
 - The link burns after **1 to 100 views** (default 1, a one-time link) or after **1 hour to 365 days** (default 24 hours), whichever comes first.
-- An optional **password** (4 to 128 characters) guards the link. One wrong guess locks the link for 5 minutes.
+- An optional **password** (minimum 8 characters, maximum 128) guards the link. One wrong guess locks the link for 5 minutes.
 - When the last view is used or the time runs out, the content is deleted from disk.
 
 Stack: Next.js 16 (App Router, React 19), TypeScript, SQLite (better-sqlite3), encrypted blobs on the local filesystem, Vitest.
@@ -29,7 +29,7 @@ Stack: Next.js 16 (App Router, React 19), TypeScript, SQLite (better-sqlite3), e
 - **A stolen disk or database dump.** Without the link, the stored data cannot be decrypted: the key exists only in the token, and only its hash is stored.
 - **Link previews and prefetchers.** Opening a link with GET never consumes a view. A view is consumed only by an explicit POST (a Next.js server action) when the reader presses the button.
 - **Guessing links.** A 256-bit random token cannot be enumerated.
-- **Password guessing.** The password is stored as a salted scrypt hash (N=2^15, r=8, p=1) and compared in constant time. After one wrong guess the share is locked for 5 minutes, server-side. While locked, no password is checked at all. A wrong guess does not use a view, and the lock does not change the views or the expiry.
+- **Password guessing.** Passwords need at least 8 characters. The lock allows one guess every 5 minutes, about 105,000 guesses over the longest lifetime of 365 days, so pick a password that is not common or guessable. The password is stored as a salted scrypt hash (N=2^15, r=8, p=1) and compared in constant time. After one wrong guess the share is locked for 5 minutes, server-side. While locked, no password is checked at all. A wrong guess does not use a view, and the lock does not change the views or the expiry.
 - **Browser-side attacks.** Every response sends a Content-Security-Policy (`default-src 'self'`, `script-src 'self' 'unsafe-inline'`, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Shared text is always rendered as escaped text, never as HTML. Share pages (`/s/*`) are marked `noindex`.
 - **Hostile uploads.** Uploads are capped at 25 MB, the MIME type must be on an allowlist (PNG, JPEG, GIF, WebP, BMP, PDF, ZIP, plain text, CSV), executable and script extensions are blocked, and the real type is checked against the magic bytes. An optional ClamAV scan runs on the plaintext before encryption.
 - **Bulk creation.** Creating shares is rate limited to 10 per minute per IP (`RATE_LIMIT`).
