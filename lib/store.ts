@@ -376,25 +376,27 @@ function passwordGate(
   return null;
 }
 
-function claimView(db: DB, blobs: BlobStore, row: ShareRow, now: number): void {
+function claimView(db: DB, blobs: BlobStore, row: ShareRow, now: number): number {
   // Atomic, race-safe increment: only succeeds if still valid right now.
-  const result = db
+  const claimed = db
     .prepare(
       `UPDATE shares SET access_count = access_count + 1
        WHERE id = ?
          AND (max_accesses IS NULL OR access_count < max_accesses)
-         AND (expires_at  IS NULL OR expires_at > ?)`,
+         AND (expires_at  IS NULL OR expires_at > ?)
+       RETURNING access_count`,
     )
-    .run(row.id, now);
+    .get(row.id, now) as { access_count: number } | undefined;
 
-  if (result.changes === 0) {
+  if (claimed === undefined) {
     purge(db, blobs, row);
     throw new ShareError("Gone", 410, "GONE");
   }
+  return claimed.access_count;
 }
 
-function purgeAfterLastView(db: DB, blobs: BlobStore, row: ShareRow): void {
-  if (row.max_accesses !== null && row.access_count + 1 >= row.max_accesses) {
+function purgeAfterLastView(db: DB, blobs: BlobStore, row: ShareRow, accessCount: number): void {
+  if (row.max_accesses !== null && accessCount >= row.max_accesses) {
     purge(db, blobs, row);
   }
 }
@@ -428,12 +430,12 @@ export async function consumeShare(
     if (gateOutcome) return gateOutcome;
   }
 
-  claimView(db, blobs, row, now);
+  const accessCount = claimView(db, blobs, row, now);
 
   const key = deriveKey(token);
   const plaintext = decrypt(blobs.get(row.blob_path), key, row.iv, row.auth_tag);
 
-  purgeAfterLastView(db, blobs, row);
+  purgeAfterLastView(db, blobs, row, accessCount);
 
   return { status: "opened", share: contentOf(row, plaintext) };
 }
@@ -468,11 +470,11 @@ export function consumeE2eShare(
     if (gateOutcome) return gateOutcome;
   }
 
-  claimView(db, blobs, row, now);
+  const accessCount = claimView(db, blobs, row, now);
 
   const ciphertext = blobs.get(row.blob_path);
 
-  purgeAfterLastView(db, blobs, row);
+  purgeAfterLastView(db, blobs, row, accessCount);
 
   return { status: "opened", ciphertext, iv: row.iv };
 }
