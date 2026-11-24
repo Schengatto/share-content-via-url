@@ -78,6 +78,18 @@ describe.skipIf(isWindows && !existsSync(bashPath))("deploy/backup-data.sh", { t
     expect(listing.stdout.split("\n")).toEqual(expect.arrayContaining(["data/share.db", "data/blobs/blob-1"]));
   });
 
+  it("succeeds when the archive listing is larger than a pipe buffer", () => {
+    for (let index = 0; index < 1500; index++) {
+      writeFileSync(join(dataDir, "blobs", `${String(index).padStart(4, "0")}-${"x".repeat(60)}`), "c");
+    }
+
+    const result = runBackupScript("pre-shs8");
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(backupArchives()).toHaveLength(1);
+  });
+
   it.skipIf(isWindows)("writes the archive readable by the owner only", () => {
     runBackupScript("pre-shs8");
 
