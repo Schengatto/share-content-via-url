@@ -7,7 +7,14 @@ import { LEGACY_PAYLOAD_FORMAT, SEALED_PAYLOAD_FORMAT } from "../lib/db";
 import { deriveKey, encrypt, generateToken, hashToken } from "../lib/crypto";
 import { createShare, consumeShare, revokeShare, shareStatus, ShareError } from "../lib/store";
 import type { BlobStore } from "../lib/blob-store";
-import { DEFAULT_TTL_SECONDS, LOCK_DURATION_MS, MAX_TTL_SECONDS, MIN_TTL_SECONDS } from "../lib/share-options";
+import {
+  DEFAULT_TTL_SECONDS,
+  LOCK_DURATION_MS,
+  MAX_TTL_SECONDS,
+  MIN_TTL_SECONDS,
+  SHARE_LOCK_FAILURES,
+  VISITOR_LOCK_FAILURES,
+} from "../lib/share-options";
 
 function memBlobs(): BlobStore & { map: Map<string, Buffer> } {
   const map = new Map<string, Buffer>();
@@ -362,54 +369,119 @@ describe("password protected shares", () => {
     expect(lockedUntil()).toEqual({ locked_until: null });
   });
 
-  it("locks the share for 5 minutes after a wrong password without consuming a view", async () => {
+  async function guessWrong(token: string, times: number, visitorPrefix: string) {
+    let outcome: Awaited<ReturnType<typeof consumeShare>> | undefined;
+    for (let guess = 0; guess < times; guess++) {
+      outcome = await consumeShare(db, blobs, token, "wrong", `${visitorPrefix}-${guess}`);
+    }
+    return outcome;
+  }
+
+  it("does not lock the share for other visitors after a wrong password, and consumes no view", async () => {
     const { token } = await createShare(db, blobs, textInput({ password: PASSWORD }));
-    await expect(consumeShare(db, blobs, token, "wrong")).resolves.toEqual({
+    await expect(consumeShare(db, blobs, token, "wrong", "visitor-a")).resolves.toEqual({
+      status: "wrong-password",
+      retryAfterMs: 0,
+    });
+    expect(accessCount()).toEqual({ access_count: 0 });
+    expect(lockedUntil()).toEqual({ locked_until: null });
+    expect(shareStatus(db, token)).toEqual({ available: true, passwordProtected: true, lockedUntil: null });
+    expect((await openShare(token, PASSWORD)).content.toString()).toBe("top secret");
+  });
+
+  it("locks only the guessing visitor for 5 minutes after 3 wrong passwords", async () => {
+    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD, maxAccesses: 3 }));
+    for (let guess = 1; guess < VISITOR_LOCK_FAILURES; guess++) {
+      await expect(consumeShare(db, blobs, token, "wrong", "visitor-a")).resolves.toEqual({
+        status: "wrong-password",
+        retryAfterMs: 0,
+      });
+    }
+    await expect(consumeShare(db, blobs, token, "wrong", "visitor-a")).resolves.toEqual({
       status: "wrong-password",
       retryAfterMs: LOCK_DURATION_MS,
     });
+    vi.setSystemTime(START + 60_000);
+    await expect(consumeShare(db, blobs, token, PASSWORD, "visitor-a")).resolves.toEqual({
+      status: "locked",
+      retryAfterMs: LOCK_DURATION_MS - 60_000,
+    });
     expect(accessCount()).toEqual({ access_count: 0 });
+    expect(lockedUntil()).toEqual({ locked_until: null });
+    expect(shareStatus(db, token)).toMatchObject({ available: true, lockedUntil: null });
+    expect((await openShare(token, PASSWORD)).content.toString()).toBe("top secret");
+
+    vi.setSystemTime(START + LOCK_DURATION_MS);
+    await expect(consumeShare(db, blobs, token, PASSWORD, "visitor-a")).resolves.toMatchObject({ status: "opened" });
+    expect(accessCount()).toEqual({ access_count: 2 });
+  });
+
+  it("locks the share for everyone after 10 wrong passwords, doubling the lock each time", async () => {
+    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD, maxAccesses: 2 }));
+    await expect(guessWrong(token, SHARE_LOCK_FAILURES - 1, "first")).resolves.toEqual({
+      status: "wrong-password",
+      retryAfterMs: 0,
+    });
+    expect(lockedUntil()).toEqual({ locked_until: null });
+    await expect(consumeShare(db, blobs, token, "wrong", "first-last")).resolves.toEqual({
+      status: "wrong-password",
+      retryAfterMs: LOCK_DURATION_MS,
+    });
     expect(lockedUntil()).toEqual({ locked_until: START + LOCK_DURATION_MS });
     expect(shareStatus(db, token)).toEqual({
       available: true,
       passwordProtected: true,
       lockedUntil: START + LOCK_DURATION_MS,
     });
-  });
 
-  it("refuses even the correct password while locked, reporting the time left", async () => {
-    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD }));
-    await consumeShare(db, blobs, token, "wrong");
     vi.setSystemTime(START + 60_000);
-    await expect(consumeShare(db, blobs, token, PASSWORD)).resolves.toEqual({
+    await expect(consumeShare(db, blobs, token, PASSWORD, "newcomer")).resolves.toEqual({
       status: "locked",
       retryAfterMs: LOCK_DURATION_MS - 60_000,
     });
     expect(accessCount()).toEqual({ access_count: 0 });
-    expect(lockedUntil()).toEqual({ locked_until: START + LOCK_DURATION_MS });
-  });
 
-  it("opens with the correct password once the lock has ended, consuming one view", async () => {
-    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD, maxAccesses: 2 }));
-    await consumeShare(db, blobs, token, "wrong");
-    vi.setSystemTime(START + LOCK_DURATION_MS + 1);
-    expect(shareStatus(db, token)).toMatchObject({ available: true, lockedUntil: null });
-    const share = await openShare(token, PASSWORD);
-    expect(share.content.toString()).toBe("top secret");
+    const secondRound = START + LOCK_DURATION_MS;
+    vi.setSystemTime(secondRound);
+    expect((await openShare(token, PASSWORD)).content.toString()).toBe("top secret");
     expect(accessCount()).toEqual({ access_count: 1 });
     expect(db.prepare("SELECT expires_at, max_accesses FROM shares").get()).toEqual({
       expires_at: START + DEFAULT_TTL_SECONDS * 1000,
       max_accesses: 2,
     });
+    await expect(guessWrong(token, SHARE_LOCK_FAILURES, "second")).resolves.toEqual({
+      status: "wrong-password",
+      retryAfterMs: 2 * LOCK_DURATION_MS,
+    });
+    expect(lockedUntil()).toEqual({ locked_until: secondRound + 2 * LOCK_DURATION_MS });
   });
 
-  it("clears the claimed lock after a correct password", async () => {
-    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD, maxAccesses: 2 }));
-    const share = await openShare(token, PASSWORD);
-    expect(share.content.toString()).toBe("top secret");
-    expect(accessCount()).toEqual({ access_count: 1 });
+  it("keeps counting wrong passwords however far apart they are", async () => {
+    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD, ttlSeconds: MAX_TTL_SECONDS }));
+    for (let guess = 1; guess < SHARE_LOCK_FAILURES; guess++) {
+      vi.setSystemTime(START + guess * 24 * 60 * 60 * 1000);
+      await consumeShare(db, blobs, token, "wrong", `spaced-${guess}`);
+    }
     expect(lockedUntil()).toEqual({ locked_until: null });
-    expect(await openShare(token, PASSWORD)).toMatchObject({ kind: "text" });
+    await expect(consumeShare(db, blobs, token, "wrong", "spaced-last")).resolves.toEqual({
+      status: "wrong-password",
+      retryAfterMs: LOCK_DURATION_MS,
+    });
+  });
+
+  it("clears the visitor's failures after a correct password and does not count it as a failure", async () => {
+    const { token } = await createShare(db, blobs, textInput({ password: PASSWORD, maxAccesses: 2 }));
+    await consumeShare(db, blobs, token, "wrong", "visitor-a");
+    await consumeShare(db, blobs, token, "wrong", "visitor-a");
+    await expect(consumeShare(db, blobs, token, PASSWORD, "visitor-a")).resolves.toMatchObject({ status: "opened" });
+    await expect(consumeShare(db, blobs, token, "wrong", "visitor-a")).resolves.toEqual({
+      status: "wrong-password",
+      retryAfterMs: 0,
+    });
+    expect(db.prepare("SELECT failed_attempts, locked_until FROM shares").get()).toEqual({
+      failed_attempts: 3,
+      locked_until: null,
+    });
   });
 
   it("reports locked without checking the password when another attempt claimed the lock first", async () => {

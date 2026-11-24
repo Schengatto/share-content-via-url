@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { openDb, type DB } from "../lib/db";
 import type { BlobStore } from "../lib/blob-store";
 import { createShare } from "../lib/store";
-import { DEFAULT_TTL_SECONDS, LOCK_DURATION_MS, tokenFromShareUrl } from "../lib/share-options";
+import { DEFAULT_TTL_SECONDS, LOCK_DURATION_MS, VISITOR_LOCK_FAILURES, tokenFromShareUrl } from "../lib/share-options";
 
 const wiring = vi.hoisted(() => ({ db: undefined as DB | undefined, blobs: undefined as BlobStore | undefined }));
 
@@ -114,6 +114,9 @@ describe("revealShare", () => {
     });
 
     expect(await revealShare(token)).toEqual({ ok: false, status: "password-required" });
+    for (let guess = 1; guess < VISITOR_LOCK_FAILURES; guess++) {
+      expect(await revealShare(token, "wrong")).toEqual({ ok: false, status: "wrong-password", retryAfterMs: 0 });
+    }
     expect(await revealShare(token, "wrong")).toEqual({
       ok: false,
       status: "wrong-password",

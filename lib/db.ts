@@ -54,6 +54,8 @@ const MIGRATIONS = [
   `ALTER TABLE shares ADD COLUMN password_hash TEXT;
    ALTER TABLE shares ADD COLUMN locked_until INTEGER;`,
   `ALTER TABLE shares ADD COLUMN revoke_token_hash TEXT;`,
+  `ALTER TABLE shares ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE shares ADD COLUMN lockouts INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 function migrate(db: DB): void {

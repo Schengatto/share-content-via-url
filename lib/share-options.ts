@@ -12,6 +12,14 @@ export const DEFAULT_TTL_SECONDS = SECONDS_PER_DAY;
 export const LOCK_DURATION_MS = 5 * 60 * 1000;
 export const LOCK_DURATION_LABEL = `${LOCK_DURATION_MS / 60_000} minutes`;
 
+export const VISITOR_LOCK_FAILURES = 3;
+export const SHARE_LOCK_FAILURES = 10;
+export const MAX_SHARE_LOCK_MS = SECONDS_PER_DAY * 1000;
+
+export function shareLockDurationMs(previousLockouts: number): number {
+  return Math.min(LOCK_DURATION_MS * 2 ** previousLockouts, MAX_SHARE_LOCK_MS);
+}
+
 export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_PASSWORD_LENGTH = 128;
 
