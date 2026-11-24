@@ -6,12 +6,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ token: string }> },
 ) {
   ensureStarted();
   const { token } = await params;
-  const removed = revokeShare(appDb(), appBlobs(), token);
+  const revokeToken = req.headers.get("x-revoke-token") ?? undefined;
+  const removed = revokeShare(appDb(), appBlobs(), token, revokeToken);
   if (!removed) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

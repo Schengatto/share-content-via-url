@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { LEGACY_PAYLOAD_FORMAT, SEALED_PAYLOAD_FORMAT, scrubDeletedData, type DB } from "./db";
 import type { BlobStore } from "./blob-store";
-import { generateToken, hashToken, deriveKey, encrypt, decrypt } from "./crypto";
+import { generateToken, hashToken, hashesMatch, deriveKey, encrypt, decrypt } from "./crypto";
 import { openPayload, sealPayload } from "./sealed-payload";
 import { hashPassword, verifyPassword } from "./password";
 import {
@@ -43,6 +43,7 @@ export interface CreateInput extends ShareOptions {
 
 export interface CreateResult {
   token: string;
+  revokeToken: string;
   id: string;
 }
 
@@ -75,6 +76,7 @@ interface ShareRow {
   created_at: number;
   password_hash: string | null;
   locked_until: number | null;
+  revoke_token_hash: string | null;
 }
 
 export type ShareStatus =
@@ -150,6 +152,7 @@ export async function createShare(
   const passwordHash = input.password === undefined ? null : hashPassword(input.password);
 
   const token = generateToken();
+  const revokeToken = generateToken();
   const key = deriveKey(token);
   const payload = sealPayload({ filename: input.filename ?? null, mime: input.mime }, input.content);
   const { ciphertext, iv, authTag } = encrypt(payload, key);
@@ -161,8 +164,8 @@ export async function createShare(
     db.prepare(
       `INSERT INTO shares
         (id, token_hash, kind, payload_format, blob_path, iv, auth_tag,
-         expires_at, max_accesses, access_count, created_at, password_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+         expires_at, max_accesses, access_count, created_at, password_hash, revoke_token_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     ).run(
       id,
       hashToken(token),
@@ -175,11 +178,12 @@ export async function createShare(
       input.maxAccesses,
       createdAt,
       passwordHash,
+      hashToken(revokeToken),
     );
     blobs.put(blobPath, ciphertext);
   })();
 
-  return { token, id };
+  return { token, revokeToken, id };
 }
 
 /**
@@ -259,11 +263,21 @@ export async function consumeShare(
 }
 
 /** Revoke a share by token, deleting its row and blob. Returns true if found. */
-export function revokeShare(db: DB, blobs: BlobStore, token: string): boolean {
+export function revokeShare(
+  db: DB,
+  blobs: BlobStore,
+  token: string,
+  revokeToken?: string,
+): boolean {
   const row = db
-    .prepare("SELECT id, blob_path FROM shares WHERE token_hash = ?")
-    .get(hashToken(token)) as Pick<ShareRow, "id" | "blob_path"> | undefined;
+    .prepare("SELECT id, blob_path, revoke_token_hash FROM shares WHERE token_hash = ?")
+    .get(hashToken(token)) as Pick<ShareRow, "id" | "blob_path" | "revoke_token_hash"> | undefined;
   if (!row) return false;
+  if (row.revoke_token_hash !== null) {
+    if (revokeToken === undefined || !hashesMatch(row.revoke_token_hash, hashToken(revokeToken))) {
+      return false;
+    }
+  }
   purge(db, blobs, row);
   return true;
 }

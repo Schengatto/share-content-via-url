@@ -53,6 +53,7 @@ const MIGRATIONS = [
    CREATE UNIQUE INDEX idx_shares_token_hash ON shares (token_hash);`,
   `ALTER TABLE shares ADD COLUMN password_hash TEXT;
    ALTER TABLE shares ADD COLUMN locked_until INTEGER;`,
+  `ALTER TABLE shares ADD COLUMN revoke_token_hash TEXT;`,
 ];
 
 function migrate(db: DB): void {

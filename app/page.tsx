@@ -22,6 +22,7 @@ type Kind = "text" | "file";
 
 type CreatedLink = {
   url: string;
+  revokeToken: string;
   views: number;
   expiryLabel: string;
   kind: Kind;
@@ -142,7 +143,7 @@ export default function CreatePage() {
       const data = await res.json();
       if (!res.ok) setError(data.error ?? "Unknown error");
       else {
-        setCreated({ url: data.url, views, expiryLabel: ttlStop.label, kind });
+        setCreated({ url: data.url, revokeToken: data.revokeToken, views, expiryLabel: ttlStop.label, kind });
         setText("");
         setFile(null);
         setPassword("");
@@ -331,7 +332,10 @@ function LinkReady({ link, onReset }: { link: CreatedLink; onReset: () => void }
     const token = tokenFromShareUrl(link.url);
     if (!token) return;
     setBurn("burning");
-    const res = await fetch(`/api/share/${token}`, { method: "DELETE" }).catch(() => null);
+    const res = await fetch(`/api/share/${token}`, {
+      method: "DELETE",
+      headers: { "x-revoke-token": link.revokeToken },
+    }).catch(() => null);
     setBurn(res && (res.ok || res.status === 404) ? "burned" : "failed");
   }
 

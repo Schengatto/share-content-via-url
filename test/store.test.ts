@@ -231,11 +231,51 @@ describe("store hardening", () => {
   });
 
   it("deletes the row before the blob, so a failing blob delete leaves no live share", async () => {
-    const { token } = await createShare(db, blobs, textInput());
+    const { token, revokeToken } = await createShare(db, blobs, textInput());
     blobs.delete = () => {
       throw new Error("io error");
     };
-    expect(() => revokeShare(db, blobs, token)).toThrow("io error");
+    expect(() => revokeShare(db, blobs, token, revokeToken)).toThrow("io error");
+    expect(shareStatus(db, token)).toEqual({ available: false, status: 404 });
+  });
+});
+
+describe("revoke token", () => {
+  it("returns a revoke token different from the link token and stores only its hash", async () => {
+    const { token, revokeToken } = await createShare(db, blobs, textInput());
+    expect(revokeToken).not.toBe(token);
+    const row = db.prepare("SELECT revoke_token_hash FROM shares").get() as { revoke_token_hash: string };
+    expect(row.revoke_token_hash).toBe(hashToken(revokeToken));
+    expect(row.revoke_token_hash).not.toContain(revokeToken);
+  });
+
+  it("revokes with the matching revoke token", async () => {
+    const { token, revokeToken } = await createShare(db, blobs, textInput());
+    expect(revokeShare(db, blobs, token, revokeToken)).toBe(true);
+    expect(shareStatus(db, token)).toEqual({ available: false, status: 404 });
+    expect(blobs.map.size).toBe(0);
+  });
+
+  it("refuses the link token, a missing token and a wrong token, keeping the share", async () => {
+    const { token } = await createShare(db, blobs, textInput());
+    expect(revokeShare(db, blobs, token)).toBe(false);
+    expect(revokeShare(db, blobs, token, token)).toBe(false);
+    expect(revokeShare(db, blobs, token, generateToken())).toBe(false);
+    expect(revokeShare(db, blobs, token, "")).toBe(false);
+    expect((await openShare(token)).content.toString()).toBe("top secret");
+  });
+
+  it("answers an unknown share exactly like a refused revoke", async () => {
+    const { token } = await createShare(db, blobs, textInput());
+    expect(revokeShare(db, blobs, generateToken(), generateToken())).toBe(
+      revokeShare(db, blobs, token, generateToken()),
+    );
+  });
+
+  it("keeps the old behaviour for a legacy share without a revoke token hash", async () => {
+    const { token } = await createShare(db, blobs, textInput());
+    db.prepare("UPDATE shares SET revoke_token_hash = NULL").run();
+    expect(revokeShare(db, blobs, token)).toBe(true);
     expect(shareStatus(db, token)).toEqual({ available: false, status: 404 });
   });
 });
@@ -413,13 +453,13 @@ describe("store on disk", () => {
   });
 
   it("leaves no trace of a revoked share in the database file or the WAL", async () => {
-    const { token } = await createShare(fileDb, blobs, textInput());
+    const { token, revokeToken } = await createShare(fileDb, blobs, textInput());
     const tokenHash = hashToken(token);
     const databaseBytes = () =>
       Buffer.concat([readFileSync(join(tempDir, "share.db")), readFileSync(join(tempDir, "share.db-wal"))]);
     expect(databaseBytes().includes(tokenHash)).toBe(true);
 
-    revokeShare(fileDb, blobs, token);
+    revokeShare(fileDb, blobs, token, revokeToken);
 
     expect(statSync(join(tempDir, "share.db-wal")).size).toBe(0);
     expect(databaseBytes().includes(tokenHash)).toBe(false);
