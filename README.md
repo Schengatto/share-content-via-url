@@ -37,7 +37,7 @@ Stack: Next.js 16 (App Router, React 19), TypeScript, SQLite (better-sqlite3), e
 ### What it does NOT protect against, and trust assumptions
 
 - **It is not end-to-end encrypted.** Encryption runs on the server. The operator of the server sees the plaintext when a share is created and when it is opened. You have to trust the operator.
-- **The token is in the URL path, not in the fragment.** Anything that logs request paths can see it: reverse proxies, access logs, monitoring. The production nginx config has `access_log off`. The link also stays in the browser history of everyone who opens it.
+- **The token is in the URL path, not in the fragment.** Anything that logs request paths can see it: reverse proxies, access logs, monitoring. The production nginx config has `access_log off`. Share pages (`/s/*`) and share API responses (`/api/share/*`) are sent with `Cache-Control: no-store`, so browsers and proxies do not keep a copy of the page or the revealed content. The link also stays in the browser history of everyone who opens it.
 - **There are no accounts.** Anyone who holds the link can read the share or revoke it (`DELETE /api/share/<token>`).
 - **The password is an access gate, not part of the key.** It is checked by the server before decryption. Someone with the database and the token does not need the password to decrypt.
 - **The lock can be abused.** One wrong guess locks the share for 5 minutes for everyone. Someone who has the link but not the password can keep the share locked (a nuisance denial of service). This is an accepted trade-off.
