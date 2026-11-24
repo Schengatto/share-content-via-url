@@ -32,7 +32,9 @@ create_backup() {
   trap 'rm -f "$partial_archive"' EXIT
 
   tar -czf "$partial_archive" -C "$data_parent" "$data_name"
-  tar -tzf "$partial_archive" | grep -qx "$data_name/share.db"
+  local archive_listing
+  archive_listing="$(tar -tzf "$partial_archive")"
+  grep -qx "$data_name/share.db" <<<"$archive_listing"
   chmod 600 "$partial_archive"
   mv "$partial_archive" "$archive"
 
