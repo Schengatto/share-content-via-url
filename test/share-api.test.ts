@@ -210,6 +210,12 @@ describe("POST /api/share end-to-end text", () => {
     expect(shareCount()).toBe(0);
   });
 
+  it("rejects a payload declaring 600000 KDF iterations without an auth hash", async () => {
+    const response = await postE2e(await encryptText(PLAINTEXT), { kdfIterations: "600000" });
+    expect(response.status).toBe(400);
+    expect(shareCount()).toBe(0);
+  });
+
   it("rejects a ciphertext shorter than 20 bytes", async () => {
     const upload = await encryptText(PLAINTEXT);
     const response = await postE2e({ ...upload, ciphertext: upload.ciphertext.slice(0, 19) });

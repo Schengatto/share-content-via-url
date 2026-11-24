@@ -43,7 +43,6 @@ async function openE2eShare(
   }
 }
 
-
 function LockIcon() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -152,10 +151,17 @@ export function RevealGate({
     }
     setPhase("loading");
     setNotice(null);
-    const next =
-      e2e === null || fragment === null
-        ? await revealShare(token, password)
-        : await openE2eShare(token, e2e, fragment, password);
+    let next: GateResult;
+    try {
+      next =
+        e2e === null || fragment === null
+          ? await revealShare(token, password)
+          : await openE2eShare(token, e2e, fragment, password);
+    } catch {
+      setNotice("Could not open the secret. Reload and try again.");
+      setPhase("idle");
+      return;
+    }
     if (!next.ok && next.status === "rate-limited") {
       setNotice(`Too many attempts. Try again in ${Math.ceil(next.retryAfterMs / 1000)} seconds.`);
       setPhase("idle");
@@ -204,7 +210,7 @@ export function RevealGate({
       );
     }
     const copy = sealedCopy(locked, passwordProtected);
-    const loadingLabel = e2e === null ? "Breaking the seal…" : "Unlocking…";
+    const loadingLabel = passwordProtected ? "Unlocking…" : "Breaking the seal…";
     return (
       <>
         <BrandHeader status={locked ? "locked" : "sealed"} tone={locked ? "burned" : "live"} />

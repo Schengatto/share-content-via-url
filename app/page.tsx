@@ -142,7 +142,17 @@ export default function CreatePage() {
       form.set("kind", kind);
       let fragmentKey = "";
       if (kind === "text") {
-        const upload = await encryptText(text, password);
+        let upload: Awaited<ReturnType<typeof encryptText>>;
+        try {
+          upload = await encryptText(text, password);
+        } catch {
+          setError(
+            globalThis.crypto?.subtle
+              ? "Could not encrypt the text."
+              : "Encryption needs a secure (HTTPS) connection.",
+          );
+          return;
+        }
         fragmentKey = upload.fragmentKey;
         form.set("encryption", E2E_FORMAT);
         form.set("ciphertext", new Blob([upload.ciphertext]));
