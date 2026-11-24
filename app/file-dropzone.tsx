@@ -107,7 +107,7 @@ export function FileDropzone({
 
       {error && <p className="text-sm text-ember">{error}</p>}
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-0.5 [@media(max-height:740px)]:hidden">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-0.5">
         <span className="font-mono text-[11px] uppercase tracking-wider text-dim">Supported</span>
         {SUPPORTED_FILE_GROUPS.flatMap((group) => group.items).map((type) => (
           <span
