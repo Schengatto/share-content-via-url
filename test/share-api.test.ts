@@ -4,11 +4,17 @@ import { openDb, type DB } from "../lib/db";
 import type { BlobStore } from "../lib/blob-store";
 import { createShare } from "../lib/store";
 import { DEFAULT_TTL_SECONDS, LOCK_DURATION_MS, VISITOR_LOCK_FAILURES, tokenFromShareUrl } from "../lib/share-options";
-import { E2E_FORMAT, deriveRevealProofs, encryptText, type E2eTextUpload } from "../lib/e2e-crypto";
+import { E2E_FORMAT, decryptText, deriveRevealProofs, encryptText, type E2eTextUpload } from "../lib/e2e-crypto";
 
-const wiring = vi.hoisted(() => ({ db: undefined as DB | undefined, blobs: undefined as BlobStore | undefined }));
+const wiring = vi.hoisted(() => ({
+  db: undefined as DB | undefined,
+  blobs: undefined as BlobStore | undefined,
+  ip: "",
+}));
 
-vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers(wiring.ip ? { "x-forwarded-for": wiring.ip } : {}),
+}));
 
 vi.mock("../lib/app", () => ({
   appDb: () => wiring.db,
@@ -18,7 +24,7 @@ vi.mock("../lib/app", () => ({
 }));
 
 const { POST } = await import("../app/api/share/route");
-const { revealShare } = await import("../app/s/[token]/actions");
+const { revealShare, revealE2eShare } = await import("../app/s/[token]/actions");
 
 function memBlobs(): BlobStore {
   const map = new Map<string, Buffer>();
@@ -273,3 +279,72 @@ describe("revealShare", () => {
     expect(await revealShare(token, "heron-42")).toEqual({ ok: true, kind: "text", text: "lantern-orbit" });
   });
 });
+
+describe("revealE2eShare", () => {
+  const WRONG_KEY = "A".repeat(43);
+  let revealerCount = 0;
+
+  beforeEach(() => {
+    revealerCount += 1;
+    wiring.ip = `10.1.0.${revealerCount}`;
+  });
+
+  async function createE2eShare(password?: string, fields?: Record<string, string>) {
+    const upload = await encryptText(PLAINTEXT, password);
+    const { id } = (await (await postE2e(upload, fields)).json()) as { id: string };
+    const proofs = await deriveRevealProofs(upload.fragmentKey, upload.salt, upload.kdfIterations, password ?? "");
+    return { id, ...proofs };
+  }
+
+  function shareCounters() {
+    return wiring.db!.prepare("SELECT access_count, failed_attempts FROM shares").get();
+  }
+
+  it("returns a ciphertext the client decrypts, then 404 once the single view is spent", async () => {
+    const { id, linkProof, encKey } = await createE2eShare();
+    const opened = await revealE2eShare(id, linkProof);
+    expect(opened).toMatchObject({ ok: true, format: E2E_FORMAT });
+    const { ciphertext, iv } = opened as { ciphertext: string; iv: string };
+    expect(await decryptText(encKey, ciphertext, iv)).toBe(PLAINTEXT);
+    expect(await revealE2eShare(id, linkProof)).toEqual({ ok: false, status: 404 });
+  });
+
+  it("opens a password share with the derived auth key", async () => {
+    const { id, linkProof, authKey, encKey } = await createE2eShare(PASSWORD);
+    const opened = await revealE2eShare(id, linkProof, authKey);
+    const { ciphertext, iv } = opened as { ciphertext: string; iv: string };
+    expect(await decryptText(encKey, ciphertext, iv)).toBe(PLAINTEXT);
+  });
+
+  it("answers 404 for a wrong link proof without touching the counters", async () => {
+    const { id } = await createE2eShare(undefined, { maxAccesses: "3" });
+    expect(await revealE2eShare(id, WRONG_KEY)).toEqual({ ok: false, status: 404 });
+    expect(shareCounters()).toEqual({ access_count: 0, failed_attempts: 0 });
+  });
+
+  it("answers 404 for a malformed link proof and 400 for a malformed auth key", async () => {
+    const { id, linkProof } = await createE2eShare(PASSWORD, { maxAccesses: "3" });
+    expect(await revealE2eShare(id, "x".repeat(42))).toEqual({ ok: false, status: 404 });
+    expect(await revealE2eShare(id, linkProof, "x".repeat(42))).toEqual({ ok: false, status: 400 });
+    expect(shareCounters()).toEqual({ access_count: 0, failed_attempts: 0 });
+  });
+
+  it("asks for the password, and a wrong auth key does not use a view", async () => {
+    const { id, linkProof, authKey } = await createE2eShare(PASSWORD, { maxAccesses: "3" });
+    expect(await revealE2eShare(id, linkProof)).toEqual({ ok: false, status: "password-required" });
+    expect(await revealE2eShare(id, linkProof, WRONG_KEY)).toEqual({
+      ok: false,
+      status: "wrong-password",
+      retryAfterMs: 0,
+    });
+    expect(shareCounters()).toEqual({ access_count: 0, failed_attempts: 1 });
+    expect(await revealE2eShare(id, linkProof, authKey)).toMatchObject({ ok: true });
+  });
+
+  it("makes the legacy reveal answer 404 on an end-to-end share", async () => {
+    const { id } = await createE2eShare(undefined, { maxAccesses: "3" });
+    expect(await revealShare(id)).toEqual({ ok: false, status: 404 });
+    expect(shareCounters()).toEqual({ access_count: 0, failed_attempts: 0 });
+  });
+});
+
