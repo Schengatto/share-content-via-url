@@ -15,9 +15,11 @@ import {
   MIN_VIEWS,
   TTL_STOPS,
   VISITOR_LOCK_FAILURES,
+  isValidPassword,
   tokenFromShareUrl,
   viewsLabel,
 } from "@/lib/share-options";
+import { E2E_FORMAT, encryptText } from "@/lib/e2e-crypto";
 
 type Kind = "text" | "file";
 
@@ -128,23 +130,40 @@ export default function CreatePage() {
 
   async function submit() {
     if (!canSubmit) return;
+    if (kind === "text" && password !== "" && !isValidPassword(password)) {
+      setError(`Password must be ${MIN_PASSWORD_LENGTH} to ${MAX_PASSWORD_LENGTH} characters`);
+      return;
+    }
     setLoading(true);
     setError(null);
 
-    const form = new FormData();
-    form.set("kind", kind);
-    if (kind === "text") form.set("text", text);
-    else if (file) form.set("file", file);
-    form.set("maxAccesses", String(views));
-    form.set("ttlSeconds", String(ttlStop.seconds));
-    if (password !== "") form.set("password", password);
-
     try {
+      const form = new FormData();
+      form.set("kind", kind);
+      let fragmentKey = "";
+      if (kind === "text") {
+        const upload = await encryptText(text, password);
+        fragmentKey = upload.fragmentKey;
+        form.set("encryption", E2E_FORMAT);
+        form.set("ciphertext", new Blob([upload.ciphertext]));
+        form.set("iv", upload.iv);
+        form.set("salt", upload.salt);
+        form.set("kdfIterations", String(upload.kdfIterations));
+        form.set("linkProofHash", upload.linkProofHash);
+        if (upload.authHash !== null) form.set("authHash", upload.authHash);
+      } else if (file) {
+        form.set("file", file);
+        if (password !== "") form.set("password", password);
+      }
+      form.set("maxAccesses", String(views));
+      form.set("ttlSeconds", String(ttlStop.seconds));
+
       const res = await fetch("/api/share", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) setError(data.error ?? "Unknown error");
       else {
-        setCreated({ url: data.url, revokeToken: data.revokeToken, views, expiryLabel: ttlStop.label, kind });
+        const url = kind === "text" ? `${data.url}#${fragmentKey}` : data.url;
+        setCreated({ url, revokeToken: data.revokeToken, views, expiryLabel: ttlStop.label, kind });
         setText("");
         setFile(null);
         setPassword("");

@@ -19,7 +19,7 @@ const ENCRYPTION_INFO = new TextEncoder().encode("share-secret:e2e:v1:enc");
 
 export interface E2eTextUpload {
   fragmentKey: string;
-  ciphertext: Uint8Array;
+  ciphertext: Uint8Array<ArrayBuffer>;
   iv: string;
   salt: string;
   kdfIterations: number;

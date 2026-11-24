@@ -29,12 +29,13 @@ export const metadata: Metadata = {
 function readGateState(token: string) {
   const status = shareStatus(appDb(), token);
   if (!status.available) {
-    return { unavailableStatus: status.status, passwordProtected: false, initialLockRemainingMs: 0 };
+    return { unavailableStatus: status.status, passwordProtected: false, initialLockRemainingMs: 0, e2e: null };
   }
   return {
     unavailableStatus: null,
     passwordProtected: status.passwordProtected,
     initialLockRemainingMs: status.lockedUntil === null ? 0 : status.lockedUntil - Date.now(),
+    e2e: status.format === "e2e-v1" ? { salt: status.salt, kdfIterations: status.kdfIterations } : null,
   };
 }
 
