@@ -4,6 +4,7 @@ import {
   hkdfSync,
   createCipheriv,
   createDecipheriv,
+  timingSafeEqual,
 } from "node:crypto";
 
 /**
@@ -29,6 +30,12 @@ export function generateToken(): string {
 /** SHA-256 (hex) of the token — the lookup key stored in the DB. */
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+export function hashesMatch(expectedHash: string, candidateHash: string): boolean {
+  const expected = Buffer.from(expectedHash, "hex");
+  const candidate = Buffer.from(candidateHash, "hex");
+  return expected.length === candidate.length && timingSafeEqual(expected, candidate);
 }
 
 /** Derive the AES-256 key from the token via HKDF-SHA256. */

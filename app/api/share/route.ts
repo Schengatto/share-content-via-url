@@ -78,14 +78,14 @@ export async function POST(req: NextRequest) {
   try {
     assertValidShareOptions(options);
     await validateContent({ kind, buffer, declaredMime: mime, filename });
-    const { token } = await createShare(appDb(), appBlobs(), {
+    const { token, revokeToken } = await createShare(appDb(), appBlobs(), {
       kind,
       content: buffer,
       mime,
       filename,
       ...options,
     });
-    return NextResponse.json({ url: shareUrl(req.nextUrl.origin, token) });
+    return NextResponse.json({ url: shareUrl(req.nextUrl.origin, token), revokeToken });
   } catch (e) {
     const err = e as { status?: number; message?: string };
     if (typeof err.status === "number") {
