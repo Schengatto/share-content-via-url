@@ -4,6 +4,7 @@ import { assertValidShareOptions, createShare } from "@/lib/store";
 import { DEFAULT_TTL_SECONDS, DEFAULT_VIEWS } from "@/lib/share-options";
 import { validateContent, MAX_SIZE } from "@/lib/content-safety";
 import { shareCreationLimiter } from "@/lib/rate-limit";
+import { clientIp } from "@/lib/client-ip";
 
 // Reject oversized uploads from the Content-Length header BEFORE buffering the
 // whole body into memory (the precise byte check still runs in validateContent).
@@ -25,8 +26,7 @@ function optionalPasswordField(value: FormDataEntryValue | null): string | undef
 export async function POST(req: NextRequest) {
   ensureStarted();
 
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  if (!shareCreationLimiter.allow(ip)) {
+  if (!shareCreationLimiter.allow(clientIp(req.headers))) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
 

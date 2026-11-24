@@ -7,6 +7,8 @@ import { DEFAULT_TTL_SECONDS, LOCK_DURATION_MS, tokenFromShareUrl } from "../lib
 
 const wiring = vi.hoisted(() => ({ db: undefined as DB | undefined, blobs: undefined as BlobStore | undefined }));
 
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+
 vi.mock("../lib/app", () => ({
   appDb: () => wiring.db,
   appBlobs: () => wiring.blobs,
