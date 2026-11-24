@@ -185,6 +185,9 @@ export function RevealGate({
       setPhase("idle");
       return;
     }
+    if (e2e !== null && next.ok) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
     setResult(next);
     setPhase("done");
   }
