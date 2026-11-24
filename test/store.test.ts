@@ -1,11 +1,32 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { openDb, type DB } from "../lib/db";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LEGACY_PAYLOAD_FORMAT, SEALED_PAYLOAD_FORMAT } from "../lib/db";
+import { E2E_V1_PAYLOAD_FORMAT, LEGACY_PAYLOAD_FORMAT, SEALED_PAYLOAD_FORMAT } from "../lib/db";
 import { deriveKey, encrypt, generateToken, hashToken } from "../lib/crypto";
-import { createShare, consumeShare, revokeShare, shareStatus, ShareError } from "../lib/store";
+import {
+  assertValidE2eInput,
+  consumeE2eShare,
+  createE2eShare,
+  createShare,
+  consumeShare,
+  revokeShare,
+  shareStatus,
+  ShareError,
+  type CreateE2eInput,
+} from "../lib/store";
+import { purgeExpired } from "../lib/cleanup";
+import {
+  E2E_KDF_ITERATIONS,
+  decryptText,
+  deriveRevealProofs,
+  encryptText,
+  fromBase64Url,
+  type E2eTextUpload,
+  type RevealProofs,
+} from "../lib/e2e-crypto";
+import { MAX_SIZE } from "../lib/file-support";
 import type { BlobStore } from "../lib/blob-store";
 import {
   DEFAULT_TTL_SECONDS,
@@ -161,8 +182,8 @@ describe("shareStatus", () => {
 
   it("reports a fresh share as available without consuming an access", async () => {
     const { token } = await createShare(db, blobs, textInput({ maxAccesses: 1 }));
-    expect(shareStatus(db, token)).toEqual({ available: true, passwordProtected: false, lockedUntil: null });
-    expect(shareStatus(db, token)).toEqual({ available: true, passwordProtected: false, lockedUntil: null });
+    expect(shareStatus(db, token)).toEqual({ available: true, format: "legacy", passwordProtected: false, lockedUntil: null });
+    expect(shareStatus(db, token)).toEqual({ available: true, format: "legacy", passwordProtected: false, lockedUntil: null });
     expect(db.prepare("SELECT access_count FROM shares").get()).toEqual({ access_count: 0 });
     const got = await openShare(token);
     expect(got.content.toString()).toBe("top secret");
@@ -359,7 +380,7 @@ describe("password protected shares", () => {
 
   it("reports the share as password protected on the side-effect free status read", async () => {
     const { token } = await createShare(db, blobs, textInput({ password: PASSWORD }));
-    expect(shareStatus(db, token)).toEqual({ available: true, passwordProtected: true, lockedUntil: null });
+    expect(shareStatus(db, token)).toEqual({ available: true, format: "legacy", passwordProtected: true, lockedUntil: null });
   });
 
   it("asks for the password without locking or consuming a view when none is given", async () => {
@@ -385,7 +406,7 @@ describe("password protected shares", () => {
     });
     expect(accessCount()).toEqual({ access_count: 0 });
     expect(lockedUntil()).toEqual({ locked_until: null });
-    expect(shareStatus(db, token)).toEqual({ available: true, passwordProtected: true, lockedUntil: null });
+    expect(shareStatus(db, token)).toEqual({ available: true, format: "legacy", passwordProtected: true, lockedUntil: null });
     expect((await openShare(token, PASSWORD)).content.toString()).toBe("top secret");
   });
 
@@ -430,6 +451,7 @@ describe("password protected shares", () => {
     expect(lockedUntil()).toEqual({ locked_until: START + LOCK_DURATION_MS });
     expect(shareStatus(db, token)).toEqual({
       available: true,
+      format: "legacy",
       passwordProtected: true,
       lockedUntil: START + LOCK_DURATION_MS,
     });
@@ -507,6 +529,293 @@ describe("password protected shares", () => {
     const { token } = await createShare(db, blobs, textInput());
     const share = await openShare(token, "anything");
     expect(share.content.toString()).toBe("top secret");
+  });
+});
+
+describe("e2e shares", () => {
+  const PLAINTEXT = "end to end secret";
+  const PASSWORD = "heron-42";
+  const START = 1_800_000_000_000;
+  let plainUpload: E2eTextUpload;
+  let plainProofs: RevealProofs;
+  let passwordUpload: E2eTextUpload;
+  let passwordProofs: RevealProofs;
+  let otherProofs: RevealProofs;
+
+  beforeAll(async () => {
+    plainUpload = await encryptText(PLAINTEXT);
+    plainProofs = await deriveRevealProofs(plainUpload.fragmentKey, plainUpload.salt, plainUpload.kdfIterations, "");
+    passwordUpload = await encryptText(PLAINTEXT, PASSWORD);
+    passwordProofs = await deriveRevealProofs(
+      passwordUpload.fragmentKey,
+      passwordUpload.salt,
+      passwordUpload.kdfIterations,
+      PASSWORD,
+    );
+    const otherUpload = await encryptText("another secret");
+    otherProofs = await deriveRevealProofs(otherUpload.fragmentKey, otherUpload.salt, otherUpload.kdfIterations, "");
+  }, 60_000);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(START);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const e2eInput = (upload: E2eTextUpload, over: Partial<CreateE2eInput> = {}): CreateE2eInput => ({
+    ciphertext: Buffer.from(upload.ciphertext),
+    iv: Buffer.from(fromBase64Url(upload.iv)),
+    salt: Buffer.from(fromBase64Url(upload.salt)),
+    kdfIterations: upload.kdfIterations,
+    linkProofHash: upload.linkProofHash,
+    authHash: upload.authHash,
+    maxAccesses: 1,
+    ttlSeconds: DEFAULT_TTL_SECONDS,
+    ...over,
+  });
+
+  const proofBytes = (proof: string) => Buffer.from(proof, "base64url");
+  const WRONG_AUTH_KEY = Buffer.alloc(32, 7);
+  const counters = () => db.prepare("SELECT access_count, failed_attempts, locked_until, lockouts FROM shares").get();
+  const shareCount = () => db.prepare("SELECT COUNT(*) c FROM shares").get();
+
+  function errorOf(action: () => unknown): unknown {
+    try {
+      action();
+    } catch (error) {
+      return error;
+    }
+    throw new Error("expected the action to throw");
+  }
+
+  it("stores the client ciphertext byte for byte and no plaintext anywhere", () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(plainUpload));
+    expect(linkId).toHaveLength(22);
+    const row = db.prepare("SELECT * FROM shares").get() as Record<string, unknown>;
+    expect(row).toMatchObject({
+      token_hash: hashToken(linkId),
+      kind: "text",
+      payload_format: E2E_V1_PAYLOAD_FORMAT,
+      filename: null,
+      mime: null,
+      password_hash: null,
+      e2e_kdf_iterations: 0,
+      link_proof_hash: plainUpload.linkProofHash,
+      auth_hash: null,
+    });
+    expect(row.auth_tag).toEqual(Buffer.alloc(0));
+    expect(row.iv).toEqual(Buffer.from(fromBase64Url(plainUpload.iv)));
+    expect(row.e2e_salt).toEqual(Buffer.from(fromBase64Url(plainUpload.salt)));
+    expect(blobs.map.get(row.blob_path as string)).toEqual(Buffer.from(plainUpload.ciphertext));
+    const containsPlaintext = (value: unknown) =>
+      Buffer.isBuffer(value) ? value.includes(PLAINTEXT) : String(value).includes(PLAINTEXT);
+    expect([...Object.values(row), ...blobs.map.values()].some(containsPlaintext)).toBe(false);
+  });
+
+  it("reports the format, salt and iterations on the status read", async () => {
+    const { linkId: plainLinkId } = createE2eShare(db, blobs, e2eInput(plainUpload));
+    const { linkId: passwordLinkId } = createE2eShare(db, blobs, e2eInput(passwordUpload));
+    const { token: legacyToken } = await createShare(db, blobs, textInput());
+    expect(shareStatus(db, plainLinkId)).toEqual({
+      available: true,
+      format: "e2e-v1",
+      salt: plainUpload.salt,
+      kdfIterations: 0,
+      passwordProtected: false,
+      lockedUntil: null,
+    });
+    expect(shareStatus(db, passwordLinkId)).toEqual({
+      available: true,
+      format: "e2e-v1",
+      salt: passwordUpload.salt,
+      kdfIterations: E2E_KDF_ITERATIONS,
+      passwordProtected: true,
+      lockedUntil: null,
+    });
+    expect(shareStatus(db, legacyToken)).toMatchObject({ available: true, format: "legacy" });
+  });
+
+  it("opens with the right link proof, returns the stored ciphertext and purges after the last view", async () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(plainUpload));
+    const outcome = consumeE2eShare(db, blobs, linkId, proofBytes(plainProofs.linkProof), null);
+    if (outcome.status !== "opened") throw new Error(`share not opened: ${outcome.status}`);
+    expect(outcome.ciphertext).toEqual(Buffer.from(plainUpload.ciphertext));
+    expect(outcome.iv).toEqual(Buffer.from(fromBase64Url(plainUpload.iv)));
+    await expect(
+      decryptText(plainProofs.encKey, outcome.ciphertext.toString("base64url"), outcome.iv.toString("base64url")),
+    ).resolves.toBe(PLAINTEXT);
+    expect(errorOf(() => consumeE2eShare(db, blobs, linkId, proofBytes(plainProofs.linkProof), null))).toMatchObject({
+      status: 404,
+    });
+    expect(shareCount()).toEqual({ c: 0 });
+    expect(blobs.map.size).toBe(0);
+  });
+
+  it("returns 410 and purges an expired share", () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(plainUpload));
+    expireAllShares();
+    expect(errorOf(() => consumeE2eShare(db, blobs, linkId, proofBytes(plainProofs.linkProof), null))).toMatchObject({
+      status: 410,
+    });
+    expect(shareCount()).toEqual({ c: 0 });
+  });
+
+  it("answers a wrong link proof like a missing share, touching no counter or lock", () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(plainUpload, { maxAccesses: 2 }));
+    const missing = errorOf(() => consumeE2eShare(db, blobs, "missing-link", proofBytes(plainProofs.linkProof), null));
+    const wrongProof = errorOf(() => consumeE2eShare(db, blobs, linkId, proofBytes(otherProofs.linkProof), null));
+    expect(wrongProof).toBeInstanceOf(ShareError);
+    expect(wrongProof).toEqual(missing);
+    expect(wrongProof).toMatchObject({ status: 404, code: "NOT_FOUND" });
+    expect(counters()).toEqual({ access_count: 0, failed_attempts: 0, locked_until: null, lockouts: 0 });
+  });
+
+  it("ignores a wrong authKey sent with a wrong link proof, without locking the visitor", () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(passwordUpload, { maxAccesses: 2 }));
+    for (let attempt = 0; attempt < SHARE_LOCK_FAILURES; attempt++) {
+      expect(
+        errorOf(() => consumeE2eShare(db, blobs, linkId, proofBytes(otherProofs.linkProof), WRONG_AUTH_KEY, "visitor-a")),
+      ).toMatchObject({ status: 404 });
+    }
+    expect(counters()).toEqual({ access_count: 0, failed_attempts: 0, locked_until: null, lockouts: 0 });
+    expect(
+      consumeE2eShare(
+        db,
+        blobs,
+        linkId,
+        proofBytes(passwordProofs.linkProof),
+        proofBytes(passwordProofs.authKey),
+        "visitor-a",
+      ),
+    ).toMatchObject({ status: "opened" });
+  });
+
+  it("asks for the password without consuming a view when no authKey is given", () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(passwordUpload));
+    expect(consumeE2eShare(db, blobs, linkId, proofBytes(passwordProofs.linkProof), null)).toEqual({
+      status: "password-required",
+    });
+    expect(counters()).toEqual({ access_count: 0, failed_attempts: 0, locked_until: null, lockouts: 0 });
+  });
+
+  it("locks only the guessing visitor after 3 wrong authKeys, and consumes no view", () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(passwordUpload));
+    const linkProof = proofBytes(passwordProofs.linkProof);
+    for (let guess = 1; guess < VISITOR_LOCK_FAILURES; guess++) {
+      expect(consumeE2eShare(db, blobs, linkId, linkProof, WRONG_AUTH_KEY, "visitor-a")).toEqual({
+        status: "wrong-password",
+        retryAfterMs: 0,
+      });
+    }
+    expect(consumeE2eShare(db, blobs, linkId, linkProof, WRONG_AUTH_KEY, "visitor-a")).toEqual({
+      status: "wrong-password",
+      retryAfterMs: LOCK_DURATION_MS,
+    });
+    expect(consumeE2eShare(db, blobs, linkId, linkProof, proofBytes(passwordProofs.authKey), "visitor-a")).toEqual({
+      status: "locked",
+      retryAfterMs: LOCK_DURATION_MS,
+    });
+    expect(counters()).toMatchObject({ access_count: 0, locked_until: null });
+    expect(
+      consumeE2eShare(db, blobs, linkId, linkProof, proofBytes(passwordProofs.authKey), "visitor-b"),
+    ).toMatchObject({ status: "opened" });
+  });
+
+  it("locks the share for everyone after 10 wrong authKeys", () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(passwordUpload));
+    const linkProof = proofBytes(passwordProofs.linkProof);
+    for (let guess = 1; guess < SHARE_LOCK_FAILURES; guess++) {
+      expect(consumeE2eShare(db, blobs, linkId, linkProof, WRONG_AUTH_KEY, `visitor-${guess}`)).toEqual({
+        status: "wrong-password",
+        retryAfterMs: 0,
+      });
+    }
+    expect(consumeE2eShare(db, blobs, linkId, linkProof, WRONG_AUTH_KEY, "visitor-last")).toEqual({
+      status: "wrong-password",
+      retryAfterMs: LOCK_DURATION_MS,
+    });
+    expect(counters()).toEqual({
+      access_count: 0,
+      failed_attempts: 0,
+      locked_until: START + LOCK_DURATION_MS,
+      lockouts: 1,
+    });
+    expect(consumeE2eShare(db, blobs, linkId, linkProof, proofBytes(passwordProofs.authKey), "newcomer")).toEqual({
+      status: "locked",
+      retryAfterMs: LOCK_DURATION_MS,
+    });
+  });
+
+  it("opens with the right authKey after a failure and clears the visitor lock", () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(passwordUpload, { maxAccesses: 2 }));
+    const linkProof = proofBytes(passwordProofs.linkProof);
+    const guessWrong = () => consumeE2eShare(db, blobs, linkId, linkProof, WRONG_AUTH_KEY, "visitor-a");
+    expect(guessWrong()).toEqual({ status: "wrong-password", retryAfterMs: 0 });
+    expect(guessWrong()).toEqual({ status: "wrong-password", retryAfterMs: 0 });
+    expect(
+      consumeE2eShare(db, blobs, linkId, linkProof, proofBytes(passwordProofs.authKey), "visitor-a"),
+    ).toMatchObject({ status: "opened", ciphertext: Buffer.from(passwordUpload.ciphertext) });
+    expect(guessWrong()).toEqual({ status: "wrong-password", retryAfterMs: 0 });
+    expect(guessWrong()).toEqual({ status: "wrong-password", retryAfterMs: 0 });
+    expect(counters()).toMatchObject({ access_count: 1 });
+  });
+
+  it("keeps the legacy and E2E consume paths apart without counting a view", async () => {
+    const { linkId } = createE2eShare(db, blobs, e2eInput(plainUpload));
+    await expect(consumeShare(db, blobs, linkId)).rejects.toMatchObject({ status: 404 });
+    expect(counters()).toMatchObject({ access_count: 0 });
+
+    db.prepare("DELETE FROM shares").run();
+    const { token } = await createShare(db, blobs, textInput());
+    expect(errorOf(() => consumeE2eShare(db, blobs, token, proofBytes(plainProofs.linkProof), null))).toMatchObject({
+      status: 404,
+    });
+    expect(counters()).toMatchObject({ access_count: 0 });
+  });
+
+  const malformedInputs: [string, () => CreateE2eInput][] = [
+    ["an iv of 11 bytes", () => e2eInput(plainUpload, { iv: Buffer.alloc(11) })],
+    ["a salt of 15 bytes", () => e2eInput(plainUpload, { salt: Buffer.alloc(15) })],
+    ["a link proof hash of 63 chars", () => e2eInput(plainUpload, { linkProofHash: "a".repeat(63) })],
+    ["1000 kdf iterations", () => e2eInput(passwordUpload, { kdfIterations: 1000 })],
+    ["an auth hash without kdf iterations", () => e2eInput(plainUpload, { authHash: "a".repeat(64) })],
+    ["kdf iterations without an auth hash", () => e2eInput(passwordUpload, { authHash: null })],
+    ["a ciphertext of 19 bytes", () => e2eInput(plainUpload, { ciphertext: Buffer.alloc(19) })],
+    ["a ciphertext over the size cap", () => e2eInput(plainUpload, { ciphertext: Buffer.alloc(MAX_SIZE + 1025) })],
+  ];
+
+  it.each(malformedInputs)("rejects %s without writing a row", (_, buildInput) => {
+    const input = buildInput();
+    expect(errorOf(() => assertValidE2eInput(input))).toMatchObject({ status: 400, code: "BAD_E2E_PAYLOAD" });
+    expect(errorOf(() => createE2eShare(db, blobs, input))).toMatchObject({ status: 400, code: "BAD_E2E_PAYLOAD" });
+    expect(shareCount()).toEqual({ c: 0 });
+    expect(blobs.map.size).toBe(0);
+  });
+
+  it("accepts a ciphertext at the size cap and validates the share options", () => {
+    expect(() =>
+      assertValidE2eInput(e2eInput(plainUpload, { ciphertext: Buffer.alloc(MAX_SIZE + 1024) })),
+    ).not.toThrow();
+    expect(errorOf(() => createE2eShare(db, blobs, e2eInput(plainUpload, { maxAccesses: 0 })))).toMatchObject({
+      status: 400,
+      code: "BAD_MAX_ACCESSES",
+    });
+  });
+
+  it("is found by revoke and by the expiry cleanup", () => {
+    const { linkId, revokeToken } = createE2eShare(db, blobs, e2eInput(plainUpload));
+    expect(revokeShare(db, blobs, linkId, revokeToken)).toBe(true);
+    expect(shareCount()).toEqual({ c: 0 });
+    expect(blobs.map.size).toBe(0);
+
+    createE2eShare(db, blobs, e2eInput(plainUpload));
+    expireAllShares();
+    expect(purgeExpired(db, blobs)).toBe(1);
+    expect(shareCount()).toEqual({ c: 0 });
+    expect(blobs.map.size).toBe(0);
   });
 });
 
