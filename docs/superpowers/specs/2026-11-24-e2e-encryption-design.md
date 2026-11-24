@@ -2,7 +2,7 @@
 
 **Data:** 2026-11-24
 **Task:** SHS-12 (epic SHS-6 "Security hardening")
-**Stato:** in attesa di approvazione dell'owner. SHS-13 e SHS-14 restano in backlog fino all'approvazione.
+**Stato:** approvata. SHS-13 (testo E2E) implementata e in produzione dal 2026-11-24; SHS-14 (rollout, documentazione, file lato server con ClamAV, opzione A) in corso.
 **Gap chiusi (README "What it does NOT protect against"):** 1 (non è E2E), 2 (token nel path), 4 (password non parte della chiave). Riduce il gap 5 (lock abusabile) e il gap 9 (backup + link).
 
 ## 1. Sommario

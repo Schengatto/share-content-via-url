@@ -284,7 +284,8 @@ Scansione **all'upload, sul contenuto in chiaro, prima della cifratura** (dopo n
 
 - Il **token non è mai persistito** (solo `token_hash` per il lookup).
 - Nessun campo `used`/`secret`: l'esaurimento si calcola da `access_count`/`expires_at`.
-- Chi ruba **solo DB/disco** non decifra nulla: la chiave vive solo nel token.
+- Chi ruba **solo DB/disco** non decifra nulla: per file e testo legacy la chiave vive solo
+  nel token, per il testo E2E solo nel fragment del link.
 - L'incremento accessi è **atomico** (UPDATE condizionale) → niente over-consumo in race.
 - Gli scaduti/esauriti vengono **purgati** (lazy on-access + on-startup).
 - **E2E text (SHS-13):**
@@ -325,8 +326,9 @@ Scansione **all'upload, sul contenuto in chiaro, prima della cifratura** (dopo n
 - Object storage cloud (S3) al posto del filesystem.
 - Integrazione VirusTotal.
 - Cifratura end-to-end nel browser per il testo, chiave nel fragment dell'URL: **fatto**
-  (SHS-13, §4 e §6). Resta SHS-14: decisione sui **file** (oggi cifrati lato server con
-  scansione ClamAV, non E2E). Spec: `docs/superpowers/specs/2026-11-24-e2e-encryption-design.md`.
+  (SHS-13, §4 e §6). Decisione sui **file** (SHS-14): restano cifrati lato server con
+  scansione ClamAV, non E2E (opzione A: la scansione malware richiede il contenuto in
+  chiaro sul server). Spec: `docs/superpowers/specs/2026-11-24-e2e-encryption-design.md`.
 - **Coexistence with legacy:** existing legacy text shares (formats 1 and 2) still open
   through the old path until they expire (at most 365 days); no new legacy text share
   can be created.
