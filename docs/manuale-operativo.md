@@ -79,11 +79,32 @@ npm start         # server di produzione
   Senza i token (mai salvati) i blob **non sono decifrabili**: il backup serve
   solo a non perdere i dati cifrati, non a leggerli.
 - **Schema v6** (`password_key_salt`): il database si migra da solo all'avvio e una
-  versione più vecchia dell'app rifiuta di aprire un database v6. Il rollback
-  richiede codice **e** dati insieme: ripristina il backup di `share.db` e
-  `data/blobs/` fatto prima dell'aggiornamento insieme alla versione precedente del
-  codice. I file con password creati dopo l'aggiornamento non sono leggibili dal
-  codice precedente, perché la loro chiave dipende anche dalla password.
+  versione più vecchia dell'app rifiuta di aprire un database v6. I file con
+  password creati dopo l'aggiornamento non sono leggibili dal codice precedente,
+  perché la loro chiave dipende anche dalla password: il codice pre-v6 non sa
+  decifrarli, quindi vanno eliminati prima del rollback.
+  - **Rollback in avanti (procedura normale)**: conserva lo stato "bruciato" delle
+    condivisioni e non perde quelle create dopo l'aggiornamento. Dalla cartella del
+    progetto, in quest'ordine:
+    1. Ferma il container: `docker compose stop app`.
+    2. Fai un backup dei dati: `deploy/backup-data.sh pre-rollback-v6`.
+    3. Elenca i blob dei file con password:
+       `sqlite3 data/share.db "SELECT blob_path FROM shares WHERE password_key_salt IS NOT NULL;"`
+    4. Elimina ciascun file elencato sotto `data/blobs/` (`data/blobs/<blob_path>`).
+    5. Elimina le righe e riporta lo schema alla v5:
+       ```sql
+       DELETE FROM shares WHERE password_key_salt IS NOT NULL;
+       ALTER TABLE shares DROP COLUMN password_key_salt;
+       PRAGMA user_version = 5;
+       ```
+       (eseguili con `sqlite3 data/share.db`, in un'unica sessione).
+    6. Avvia l'immagine precedente (`share-secret:pre-<task>`).
+  - **Ultima risorsa: ripristino del backup** di `share.db` e `data/blobs/` fatto
+    prima dell'aggiornamento, insieme al codice precedente. **Attenzione**: il
+    backup contiene anche le condivisioni che dopo l'aggiornamento sono state
+    bruciate o consumate (riga e blob eliminati). Ripristinarlo le riporta in vita e
+    chiunque abbia ancora il link può rileggerle, violando la garanzia "una sola
+    lettura"; inoltre si perdono tutte le condivisioni create dopo l'aggiornamento.
 
 ### Cleanup
 - Automatico: **lazy** (a ogni accesso che trova un record scaduto) e

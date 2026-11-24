@@ -169,8 +169,12 @@ password or `K`.
    over `K || P` with infos `share-secret:e2e:v1:auth` and `share-secret:e2e:v1:enc`.
    Every derived value is 32 bytes. Distinct infos mean that knowing `linkProof` or
    `authKey` does not reveal `encKey`.
-4. Seal the text (header `{filename: null, mime: "text/plain"}` plus content) and
-   encrypt it with AES-256-GCM: key `encKey`, 12-byte `iv`, 128-bit tag, additional
+4. Seal the text (header `{filename: null, mime: "text/plain", length}` plus content)
+   and pad the payload with zero bytes up to a size bucket: 1 KiB minimum, powers of
+   two up to 1 MiB, then 1 MiB steps, and the exact size above 25 MiB. `length` is the
+   content length in bytes, so the reader ignores the padding; payloads sealed before
+   padding existed have no `length` and decode to the end of the data. Only the text
+   payload is padded: files are not. Then encrypt it with AES-256-GCM: key `encKey`, 12-byte `iv`, 128-bit tag, additional
    data = UTF-8 `share-secret:e2e:v1`.
 5. Send `POST /api/share` as multipart `FormData`: `kind=text`, `encryption=e2e-v1`,
    `ciphertext` (file part), `iv`, `salt` (base64url), `kdfIterations`, `linkProofHash`
@@ -306,7 +310,7 @@ Scansione **all'upload, sul contenuto in chiaro, prima della cifratura** (dopo n
   - A request that fails the `linkProof` check changes no lock state.
   - The text password length (8–128) is validated **only in the client**: the server
     cannot see the password and only checks the shape of `kdfIterations` and `authHash`.
-  - Visible to the server: ciphertext size (no padding), times, IP, view count, whether a
+  - Visible to the server: ciphertext size (only the padding bucket, see step 4, for text; the real size for files), times, IP, view count, whether a
     password is set. An active operator who serves modified JavaScript can still
     exfiltrate the fragment or the password: out of scope, as in the spec.
 

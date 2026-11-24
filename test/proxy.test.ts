@@ -9,11 +9,11 @@ function proxyRuns(url: string, headers?: Record<string, string>): boolean {
 }
 
 describe("proxy matcher", () => {
-  it.each(["/", "/s/abc"])("runs on %s", (url) => {
+  it.each(["/", "/s/abc", "/apifoo"])("runs on %s", (url) => {
     expect(proxyRuns(url)).toBe(true);
   });
 
-  it.each(["/_next/static/x.js", "/_next/image", "/favicon.ico", "/api/share"])(
+  it.each(["/_next/static/x.js", "/_next/image", "/favicon.ico", "/api", "/api/share"])(
     "skips %s",
     (url) => {
       expect(proxyRuns(url)).toBe(false);
@@ -50,13 +50,11 @@ describe("proxy", () => {
     );
   });
 
-  it("forwards the nonce and the policy to the rendering request", () => {
+  it("forwards the policy to the rendering request", () => {
     const response = proxy(new NextRequest("http://localhost/s/x"));
     const policy = response.headers.get("Content-Security-Policy");
     const forwardedHeaderNames = response.headers.get("x-middleware-override-headers") ?? "";
-    expect(forwardedHeaderNames).toContain("x-nonce");
     expect(forwardedHeaderNames).toContain("content-security-policy");
-    expect(response.headers.get("x-middleware-request-x-nonce")).toBe(nonceOf(policy));
     expect(response.headers.get("x-middleware-request-content-security-policy")).toBe(policy);
   });
 });
