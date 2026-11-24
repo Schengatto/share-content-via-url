@@ -45,7 +45,7 @@ Stack: Next.js 16 (App Router, React 19), TypeScript, SQLite (better-sqlite3), e
 - **A link page reveals whether a share is password protected or locked.** This is needed to show the right form or the countdown before any view is used.
 - **Single-node design.** The rate limiter lives in memory and the data is in a local SQLite file. Running several instances weakens the rate limit and needs shared storage.
 - **Rate limits and the per-IP lock trust the proxy.** They key on the first `X-Forwarded-For` address, so the reverse proxy must overwrite that header with the real client address.
-- **Deletion depends on the storage.** Overwriting with zeros does not guarantee erasure on SSDs, copy-on-write filesystems or backups.
+- **Deletion depends on the storage.** Overwriting with zeros does not guarantee erasure on SSDs, copy-on-write filesystems or backups. Backups keep ciphertext of shares that have since expired or been burned. They hold no keys, but whoever has both an old link and a backup can decrypt that share. The production retention below bounds this window to 7 days.
 
 ## Reporting a vulnerability
 
@@ -90,6 +90,15 @@ All settings are environment variables.
 ## Docker and deploy
 
 The `Dockerfile` builds on `node:24-bookworm-slim`, runs the test suite before the production build, and runs the app as the non-root `node` user on port 3000. Mount a volume at `/app/data` to keep the data. `docker-compose.yml` and `deploy/nginx-share-secret.conf` show the production setup behind nginx.
+
+### Backup retention
+
+Data backups exist only to roll back a deploy, so production keeps one, for at most 7 days.
+
+- Before each deploy, stop the container (`docker compose stop app`) and run `deploy/backup-data.sh pre-<task>`. It writes `/root/backups/share-secret-data-pre-<task>-<UTC>.tgz` with mode `0600`, checks that the archive contains `share.db`, then deletes every other `share-secret-data-*.tgz` in that directory.
+- A daily cron runs `deploy/backup-data.sh --prune`, which deletes backups older than 7 days. After a week a data rollback would also drop a week of new shares.
+- Tag the running image as `share-secret:pre-<task>` before the build, and remove older `share-secret:pre-*` tags once the deploy is verified. Images hold no share data (`data/` is a volume and is in `.dockerignore`), but an image only rolls back together with the backup of the same deploy when the schema changed.
+- `DATA_DIR`, `BACKUP_DIR` and `MAX_AGE_DAYS` override the defaults (`/root/share-secret/data`, `/root/backups`, `7`).
 
 ## Documentation
 
